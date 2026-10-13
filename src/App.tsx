@@ -46,6 +46,7 @@ import { PrivacyProvider } from "./lib/privacy-context";
 import { redactSensitiveText } from "./lib/privacy";
 import { hideBootSplash } from "./lib/boot-splash";
 import { applyTheme, readStoredTheme, storeTheme } from "./lib/theme";
+import { readHideThinking, storeHideThinking } from "./lib/hide-thinking";
 import { finalizeOpenTools, uid } from "./lib/timeline";
 import { useAgentEvents } from "./hooks/useAgentEvents";
 import { useAgentSafety } from "./hooks/useAgentSafety";
@@ -89,6 +90,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [theme, setTheme] = useState<"dark" | "light">(readStoredTheme);
+  const [hideThinking, setHideThinking] = useState(readHideThinking);
   const [privacyMode, setPrivacyMode] = useState(false);
   /** SpaceXAI coding-data share; default opt-in (matches CLI /privacy). */
   const [codingDataOptIn, setCodingDataOptIn] = useState(true);
@@ -1241,6 +1243,11 @@ export default function App() {
             onOpenPreview={() => void handleLocalCommand("preview")}
             onCompress={runCompress}
             compacting={compacting}
+            hideThinking={hideThinking}
+            onHideThinking={(next) => {
+              setHideThinking(next);
+              storeHideThinking(next);
+            }}
             allowWritesThisSession={allowWritesThisSession}
             onRevokeWritesThisSession={() =>
               void onRevokeWritesThisSession()
@@ -1296,6 +1303,7 @@ export default function App() {
             knownCommands={allCommands}
             planMode={sessionMode === "plan"}
             streaming={conn === "busy"}
+            hideThinking={hideThinking}
             pendingPermissions={permissions}
             onPermission={onPermission}
             onAllowAllPermissions={() => void onAllowAllPermissions()}

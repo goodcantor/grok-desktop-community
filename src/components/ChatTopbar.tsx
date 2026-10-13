@@ -32,6 +32,8 @@ export const ChatTopbar = memo(function ChatTopbar({
   onOpenSettings,
   onOpenPreview,
   onCompress,
+  hideThinking = true,
+  onHideThinking,
   compacting = false,
   allowWritesThisSession,
   onRevokeWritesThisSession,
@@ -62,6 +64,9 @@ export const ChatTopbar = memo(function ChatTopbar({
   onOpenPreview?: () => void;
   /** Call the agent compact API (summarize older turns). */
   onCompress?: () => void;
+  /** Fold thinking blocks in the transcript. Untick to show them in the scroll. */
+  hideThinking?: boolean;
+  onHideThinking?: (hide: boolean) => void;
   compacting?: boolean;
   allowWritesThisSession?: boolean;
   onRevokeWritesThisSession?: () => void;
@@ -226,6 +231,18 @@ export const ChatTopbar = memo(function ChatTopbar({
             Preview
           </button>
         ) : null}
+        <label
+          className="hide-thinking"
+          title="Thinking stays folded in the transcript. Untick to show it in the scroll."
+        >
+          <input
+            type="checkbox"
+            checked={hideThinking}
+            aria-label="Hide thinking"
+            onChange={(e) => onHideThinking?.(e.target.checked)}
+          />
+          Hide thinking
+        </label>
         {conn === "busy" && (
           <button
             className="btn btn-sm topbar-btn danger"

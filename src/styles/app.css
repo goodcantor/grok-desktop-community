@@ -876,6 +876,26 @@ button {
   background: rgba(248, 113, 113, 0.2);
 }
 
+.hide-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.hide-thinking input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 [data-theme="light"] .topbar-actions .topbar-btn {
   background: #fff;
   border-color: #c8c8d6;
@@ -1674,6 +1694,12 @@ button {
   font-size: 13px;
   line-height: 1.45;
   color: var(--text-muted);
+}
+
+/* Opt-in via the topbar checkbox: the block joins the transcript scroll. */
+.msg.thought.is-revealed .thought-body {
+  max-height: none;
+  overflow: visible;
 }
 
 .msg.tool {

@@ -214,21 +214,30 @@ function planEntryLabel(e: unknown): string {
 }
 
 /**
- * Thinking stays a one-line trace. Full cards stacked over the thread and
- * made the feed unusable (issue #2). Click to read; the body scrolls inside
- * a cap so one block still cannot fill the screen.
+ * Thinking stays a one-line trace while Hide thinking is on. Full cards
+ * stacked over the thread and made the feed unusable (issue #2). Click to
+ * read one block; that body scrolls inside a cap. Untick Hide thinking to
+ * show every block in the transcript scroll.
  */
 function ThoughtBlock({
   item,
   live,
   day,
+  hideThinking,
 }: {
   item: Extract<TimelineItem, { kind: "thought" }>;
   live: boolean;
   day: ReactNode;
+  hideThinking: boolean;
 }) {
   const { redact } = usePrivacy();
-  const [open, setOpen] = useState(false);
+  /** null follows the checkbox. A click pins this block open or shut. */
+  const [pinnedOpen, setPinnedOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    setPinnedOpen(null);
+  }, [hideThinking]);
+  const open = pinnedOpen ?? !hideThinking;
+  const revealed = open && !hideThinking;
   const text = redact(item.text || "");
   const preview = thoughtPreview(text);
   const bodyId = `${item.id}-thought`;
@@ -238,20 +247,20 @@ function ThoughtBlock({
     <Fragment>
       {day}
       <article
-        className={`msg thought${open ? " is-open" : " is-folded"}${live ? " is-live" : ""}`}
+        className={`msg thought${open ? " is-open" : " is-folded"}${revealed ? " is-revealed" : ""}${live ? " is-live" : ""}`}
       >
         <button
           type="button"
           className="thought-toggle"
           aria-expanded={open}
           aria-controls={bodyId}
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => setPinnedOpen(!open)}
         >
           <span className="thought-chevron" aria-hidden="true" />
           <span className="thought-label">{live ? "Thinking" : "Thought"}</span>
-          {open ? (
+          {open && hideThinking ? (
             <span className="thought-preview thought-preview--hint">Hide</span>
-          ) : preview ? (
+          ) : open ? null : preview ? (
             <span className="thought-preview">{preview}</span>
           ) : (
             <span className="thought-preview thought-preview--hint">
@@ -289,6 +298,7 @@ const TimelineRow = memo(function TimelineRow({
   knownCommands,
   planQuestion = false,
   liveThought = false,
+  hideThinking = true,
 }: {
   item: TimelineItem;
   showDay: boolean;
@@ -296,6 +306,7 @@ const TimelineRow = memo(function TimelineRow({
   planQuestion?: boolean;
   /** Tail thought while a turn is running. Folded either way; this only labels it. */
   liveThought?: boolean;
+  hideThinking?: boolean;
 }) {
   const { redact } = usePrivacy();
   const day =
@@ -416,7 +427,12 @@ const TimelineRow = memo(function TimelineRow({
 
   if (item.kind === "thought") {
     return (
-      <ThoughtBlock item={item} live={liveThought} day={day} />
+      <ThoughtBlock
+        item={item}
+        live={liveThought}
+        day={day}
+        hideThinking={hideThinking}
+      />
     );
   }
 
@@ -566,6 +582,7 @@ export const MessageList = memo(function MessageList({
   knownCommands,
   planMode = false,
   streaming = false,
+  hideThinking = true,
   pendingPermissions,
   onPermission,
   onAllowAllPermissions,
@@ -578,6 +595,8 @@ export const MessageList = memo(function MessageList({
   planMode?: boolean;
   /** True while a turn is running, so the tail thought can read as live. */
   streaming?: boolean;
+  /** Fold thinking blocks. Untick in the topbar to show them in the scroll. */
+  hideThinking?: boolean;
   /** Open session/request_permission gates (renderer-only; not from ACP timeline) */
   pendingPermissions?: PermissionRequest[];
   onPermission?: (reqId: string, optionId: string | "cancelled") => void;
@@ -634,6 +653,7 @@ export const MessageList = memo(function MessageList({
                 knownCommands={cmds}
                 planQuestion={item.id === questionId}
                 liveThought={item.id === liveThoughtId}
+                hideThinking={hideThinking}
               />
             );
           })}
