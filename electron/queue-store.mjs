@@ -7,7 +7,7 @@ let queueRoot = null;
 export function configureQueueStore(root) { queueRoot=root; }
 const queueFile=key=>{if(!queueRoot)throw Error('Queue store unavailable');return path.join(queueRoot,'queues',crypto.createHash('sha256').update(String(key)).digest('hex')+'.json');};
 export function validateQueue(value) {
-  const entries=Array.isArray(value)?value:value?.version===2?[...(value.pending||[]),...(value.inFlight?[value.inFlight]:[]),...(value.failed?[value.failed]:[])]:null;
+  const entries=Array.isArray(value)?value:value?.version===2&&Array.isArray(value.pending)?[...(value.pending||[]),...(value.inFlight?[value.inFlight]:[]),...(value.failed?[value.failed]:[])]:null;
   if(!entries||!entries.every(item=>item&&typeof item.id==='string'&&item.id&&typeof item.text==='string'&&Array.isArray(item.images)&&item.images.every(image=>image&&typeof image.data==='string'&&typeof image.mimeType==='string')))throw Error('Saved queue is invalid; original file retained for recovery');
   return value;
 }
@@ -19,8 +19,8 @@ export function writeQueue(key,items) {
   validateQueue(items);
   const serialized=JSON.stringify(items);
   if(!(Array.isArray(items)||items?.version===2)||serialized.length>32*1024*1024)throw Error('Invalid queue');
-  const file=queueFile(key);fs.mkdirSync(path.dirname(file),{recursive:true});
-  const temporary=file+'.tmp';try{fs.writeFileSync(temporary,serialized);fs.renameSync(temporary,file);}finally{fs.rmSync(temporary,{force:true});}
+  const file=queueFile(key);fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
+  const temporary=file+'.tmp';try{fs.writeFileSync(temporary,serialized,{mode:0o600});fs.renameSync(temporary,file);}finally{fs.rmSync(temporary,{force:true});}
   return true;
 }
 export function installQueueIpc({ipcMain,app}) {

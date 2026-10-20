@@ -31,7 +31,8 @@ test('local references resolve before the existing IPC path gate; protocols and 
   assert.equal(localFileReference('../outside.txt','C:\\Project'),'C:\\Project/../outside.txt');
 });
 test('Preview MCP addresses both window and execution owner',()=>{
-  const [server]=previewMcpHttpServers({url:'http://127.0.0.1:1234',token:'test'},7,'record-a');
+  const [server]=previewMcpHttpServers({url:'http://127.0.0.1:1234',token:'test'},7,'record-a',4);
   assert.ok(server.headers.some(row=>row.name==='X-Grok-Desktop-Execution'&&row.value==='record-a'));
   assert.ok(server.headers.some(row=>row.name==='X-Grok-Desktop-Window'&&row.value==='7'));
+  assert.ok(server.headers.some(row=>row.name==='X-Grok-Desktop-Generation'&&row.value==='4'));
 });

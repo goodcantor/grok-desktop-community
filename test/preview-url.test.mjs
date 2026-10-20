@@ -206,7 +206,7 @@ test("capture delivery is in usePromptDelivery, not App", () => {
     "utf8",
   );
   assert.match(mcp, /X-Grok-Desktop-Window/);
-  assert.match(acp, /desktopPreviewMcpServers\(this\.windowId,this\.previewExecutionId\)/);
+  assert.match(acp, /desktopPreviewMcpServers\(this\.windowId,this\.previewExecutionId,this\.previewGeneration\)/);
   assert.match(chrome, /Handed to chat/);
   assert.doesNotMatch(chrome, /Sent to chat ·/);
 });

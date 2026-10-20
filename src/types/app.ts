@@ -32,8 +32,8 @@ export type AppInfo = {
    */
   privacyMode: boolean;
   /**
-   * SpaceXAI coding-data share (CLI `/privacy`). Default true (opt in).
-   * Stored as coding_data_retention_opt_out on ~/.grok/auth.json.
+   * Read-only native coding-data sharing. Null means unknown/native default.
+   * Community never writes the native account preference.
    */
   codingDataOptIn: boolean | null;
   codingDataStatus?: {

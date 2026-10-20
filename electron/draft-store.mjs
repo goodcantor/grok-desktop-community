@@ -18,16 +18,16 @@ export class DraftStore {
     const file=this.file(key),old=this.read(key);
     if(old&&old.revision>value.revision)return {saved:false};
     if(typeof value.text!=='string'||value.text.length>2000000||!Number.isFinite(value.revision))throw Error('Invalid draft');
-    fs.mkdirSync(path.join(this.root,'media'),{recursive:true});
+    fs.mkdirSync(path.join(this.root,'media'),{recursive:true,mode:0o700});
     const images=(value.images||[]).slice(0,24).map(image=>{
       if(!/^image\/(png|jpeg|webp|gif)$/.test(image.mimeType))throw Error('Unsupported draft image');
       const bytes=Buffer.from(image.data,'base64');if(bytes.length>12*1024*1024)throw Error('Draft image exceeds 12 MB');
       const hash=crypto.createHash('sha256').update(bytes).digest('hex');const target=this.media(hash);
-      if(!fs.existsSync(target))fs.writeFileSync(target,bytes);
+      if(!fs.existsSync(target))fs.writeFileSync(target,bytes,{mode:0o600});
       return {id:String(image.id),name:String(image.name||'Image'),mimeType:image.mimeType,hash};
     });
     const draft={version:1,revision:value.revision,text:value.text,mode:['chat','plan','goal'].includes(value.mode)?value.mode:'chat',files:(value.files||[]).slice(0,100).filter(f=>typeof f.path==='string'&&path.isAbsolute(f.path)).map(f=>({path:f.path,name:path.basename(f.path),kind:f.kind==='folder'?'folder':'file'})),images};
-    const tmp=file+'.'+process.pid+'.tmp';fs.writeFileSync(tmp,JSON.stringify(draft));fs.renameSync(tmp,file);return {saved:true};
+    const tmp=file+'.'+process.pid+'.tmp';fs.writeFileSync(tmp,JSON.stringify(draft),{mode:0o600});fs.renameSync(tmp,file);return {saved:true};
   }
   remove(key,revision) {const value=this.read(key);if(value&&value.revision<=revision)fs.unlinkSync(this.file(key));}
   collectMedia() {

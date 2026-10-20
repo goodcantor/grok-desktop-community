@@ -18,8 +18,8 @@ const SKILL_MARKER = "managed-by: grok-desktop-preview";
  * @param {unknown} [windowId] BrowserWindow id of the chat that owns this agent.
  * @returns {object[]}
  */
-export function desktopPreviewMcpServers(windowId,executionId) {
-  return previewMcpHttpServers(previewApiAddress(), windowId,executionId);
+export function desktopPreviewMcpServers(windowId,executionId,generation=0) {
+  return previewMcpHttpServers(previewApiAddress(), windowId,executionId,generation);
 }
 
 /**

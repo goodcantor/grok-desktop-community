@@ -216,6 +216,7 @@ export class GrokAcpClient extends EventEmitter {
     /** BrowserWindow id so Preview MCP Send screenshot returns to this chat. */
     windowId = 0,
     previewExecutionId = null,
+    previewGeneration = 0,
   } = {}) {
     super();
     this.cwd = cwd || process.cwd();
@@ -229,6 +230,7 @@ export class GrokAcpClient extends EventEmitter {
     this.reasoningEffort = normalizeReasoningEffort(reasoningEffort);
     this.clientVersion = clientVersion;
     this.previewExecutionId=previewExecutionId;
+    this.previewGeneration=previewGeneration;
     this.windowId = Number.parseInt(String(windowId || ""), 10) || 0;
     this.proc = null;
     this.rl = null;
@@ -457,7 +459,7 @@ export class GrokAcpClient extends EventEmitter {
   }
 
   _previewMcpPayload() {
-    const servers = desktopPreviewMcpServers(this.windowId,this.previewExecutionId);
+    const servers = desktopPreviewMcpServers(this.windowId,this.previewExecutionId,this.previewGeneration);
     debugLog("preview", "session-mcp", {
       count: servers.length,
       names: servers.map((s) => s.name),

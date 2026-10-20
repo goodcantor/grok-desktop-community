@@ -120,6 +120,7 @@ try{
   const restarted=await page.evaluate(()=>window.grokDesktop.restartAgent());assert.ok(restarted.scope.generation>beforeRestart.generation);checks.connectionGeneration=true;
   await app.evaluate(()=>global.__harnessOldAgent.emit('session-update',{update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'STALE_AGENT_MUST_NOT_APPEAR'}}}));
   assert.equal(await page.getByText('STALE_AGENT_MUST_NOT_APPEAR',{exact:false}).count(),0);checks.staleAgentIgnored=true;
+  const previewRejected=await app.evaluate(async(_,old)=>{const host=[...global.__harnessSessions.windowSessions.values()][0];try{await global.__harnessPreview.apiForStampedExecution(host.win,host.selected.recordId,old.generation);return false;}catch(error){return /Stale Preview/.test(error.message);}},beforeRestart);assert.equal(previewRejected,true);checks.stalePreviewRejected=true;
   assert.deepEqual(errors,[]);checks.rendererErrors=errors;fs.writeFileSync(`qa/harness-native${process.env.GROK_AUDIT_DPI?'-dpi-'+process.env.GROK_AUDIT_DPI:''}.json`,JSON.stringify(checks,null,2));console.log(JSON.stringify({...checks,geometry:checks.geometry.length+' combinations'}));
 }catch(error){await page?.screenshot({path:'qa/harness-native-failure.png'}).catch(()=>{});throw error;}
 finally{await app.evaluate(({dialog})=>{dialog.showMessageBoxSync=()=>1;for(const agent of global.__harnessAgents.values())agent.cancel();}).catch(()=>{});await app.close();fixture.close();}

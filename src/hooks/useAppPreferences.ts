@@ -18,7 +18,7 @@ export function useAppPreferences({
   const [theme, setTheme] = useState<"dark" | "light">(readStoredTheme);
   const [hideThinking, setHideThinking] = useState(readHideThinking);
   const [privacyMode, setPrivacyMode] = useState(false);
-  /** SpaceXAI coding-data share; default opt-in (matches CLI /privacy). */
+  /** Native read-only sharing state; no account default is chosen here. */
   const [codingDataOptIn, setCodingDataOptIn] = useState<boolean | null>(null);
   const [codingDataNote, setCodingDataNote] = useState<string | undefined>();
   const [debugLogging, setDebugLogging] = useState(false);

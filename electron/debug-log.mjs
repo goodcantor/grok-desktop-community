@@ -98,7 +98,7 @@ export function debugLog(scope, message, data) {
   const line = `${JSON.stringify(row)}\n`;
   try {
     rotateIfNeeded(file);
-    fs.appendFileSync(file, line, "utf8");
+    fs.appendFileSync(file, line, {encoding:"utf8",mode:0o600});
   } catch (err) {
     try {
       console.warn("[debug-log] write failed:", err?.message || err);

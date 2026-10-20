@@ -53,9 +53,10 @@ export function registerPreviewIpc(options) {
   for(const name of ['preview:dock-layout','preview:dock-hide','preview:open','preview:close','preview:state','preview:navigate','preview:snapshot','preview:set-viewport','preview:chrome-ready','preview:chrome-zoom','preview:chrome-navigate','preview:chrome-back','preview:chrome-forward','preview:chrome-reload','preview:chrome-viewport','preview:chrome-snapshot','preview:chrome-screenshot','preview:chrome-open-external','preview:chrome-network','preview:chrome-network-entry','preview:chrome-network-clear','preview:chrome-network-preserve'])registerCall(name);
   for(const name of ['preview:step-zoom','preview:focus-address'])registerEvent(name);
 }
-export async function apiForStampedExecution(owner,recordId) {
+export async function apiForStampedExecution(owner,recordId,generation) {
   const host=owner&&windowSessions.get(owner.id);
   const record=recordId?host?.records.get(recordId):host?.selected;
+  if(recordId&&record&&((typeof generation==='string'&&!/^\d+$/.test(generation))||generation==null||!Number.isSafeInteger(Number(generation))||Number(generation)!==record.generation))throw Error('Stale Preview connection');
   if(!record||record.disposed)throw Error('Preview chat is no longer available');
   return (await previewForExecution(record)).api;
 }

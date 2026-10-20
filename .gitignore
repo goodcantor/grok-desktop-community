@@ -37,3 +37,11 @@ desktop-state.json
 *.key
 *.keychain*
 credentials*.json
+
+/auth.json
+/sessions/
+/drafts/
+/queues/
+/history-index.json
+/usage-cache.json
+/.grok/

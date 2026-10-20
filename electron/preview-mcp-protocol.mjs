@@ -18,7 +18,7 @@ export async function handlePreviewMcpMessage(msg, opts = {}) {
   const { id, method, params } = msg;
   const owner = opts.owner || null;
   const ownerStamped = Boolean(opts.ownerStamped);
-  const dispatch = (req) => dispatchPreviewApi({ ...req, owner, ownerStamped, executionId:opts.executionId });
+  const dispatch = (req) => dispatchPreviewApi({ ...req, owner, ownerStamped, executionId:opts.executionId,generation:opts.generation });
   if (method === "initialize") {
     return {
       jsonrpc: "2.0",

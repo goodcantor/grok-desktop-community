@@ -51,8 +51,9 @@
     "electron-builder": "26.15.3",
     "playwright-core": "1.63.0",
     "typescript": "^5.8.3",
-    "vite": "^6.3.3",
-    "wait-on": "^8.0.3"
+    "vite": "6.4.4",
+    "wait-on": "^8.0.3",
+    "js-yaml": "4.3.2"
   },
   "build": {
     "appId": "io.github.goodcantor.grokdesktopcommunity",
@@ -147,5 +148,6 @@
   },
   "engines": {
     "node": ">=22.19.0"
-  }
+  },
+  "private": true
 }

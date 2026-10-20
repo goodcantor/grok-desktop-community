@@ -21,5 +21,5 @@ if(target.startsWith('windows')){
 }
 const sums=artifacts.map(file=>`${crypto.createHash('sha256').update(fs.readFileSync(path.join('release',file))).digest('hex')}  ${file}`).join('\n')+'\n';
 fs.writeFileSync(`release/SHA256SUMS-${target}.txt`,sums);
-fs.writeFileSync(`release/verification-${target}.json`,JSON.stringify({version,target,verified:true,artifacts,acceptance:row},null,2));
+fs.writeFileSync(`release/verification-${target}.json`,JSON.stringify({version,target,electron:JSON.parse(fs.readFileSync('package.json')).devDependencies.electron,verified:true,artifacts,acceptance:row},null,2));
 console.log('RELEASE_TARGET_VERIFIED',target);

@@ -11,3 +11,5 @@ Linux: no Authenticode/Developer ID mechanism is claimed. All release artifacts 
 Record genuine official-CLI and signed-update acceptance for every target in RELEASE-ACCEPTANCE.json, including the CLI version, OS, evidence link and date. Fixture checks are separate and cannot satisfy these fields. Never mark pending acceptance as passed just to publish.
 
 Release jobs build on each native OS/architecture and fail closed if signing, acceptance or any mandatory target fails. Packaging uses --publish never. Only the final release job uploads a complete verified set to a draft; publication is a separate protected action. Never rename signed artifacts after update metadata is generated.
+
+The release preflight runs trusted tools from main against the requested tag without signing secrets. It requires a successful exact-commit native CI run. Separate macOS jobs retain distinct artifacts until assembly combines both architectures in the update feed and verifies SHA-512 metadata against the signed files. Actions are pinned to immutable commits; Dependabot proposes reviewed updates.

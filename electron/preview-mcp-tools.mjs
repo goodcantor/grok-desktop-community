@@ -173,7 +173,7 @@ export function previewOwnerIdFromHeaders(headers) {
  * @param {unknown} [windowId]
  * @returns {object[]}
  */
-export function previewMcpHttpServers(api, windowId,executionId) {
+export function previewMcpHttpServers(api, windowId,executionId,generation=0) {
   const url = String(api?.url || "").replace(/\/$/, "");
   const token = String(api?.token || "");
   if (!url || !token) return [];
@@ -185,7 +185,7 @@ export function previewMcpHttpServers(api, windowId,executionId) {
       headers: [
         { name: "Authorization", value: `Bearer ${token}` },
         ...previewOwnerHeaders(windowId),
-        ...(executionId?[{name:'X-Grok-Desktop-Execution',value:String(executionId)}]:[]),
+        ...(executionId?[{name:'X-Grok-Desktop-Execution',value:String(executionId)},{name:'X-Grok-Desktop-Generation',value:String(generation)}]:[]),
       ],
     },
   ];

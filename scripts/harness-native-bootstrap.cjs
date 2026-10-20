@@ -54,4 +54,5 @@ ipcMain.handle=(channel,handler)=>original(channel,async(event,...args)=>{
   global.__harnessFinish=(id,text='Native response complete')=>{const agent=global.__harnessAgents.get(id);agent.emit('session-update',{sessionId:id,update:{sessionUpdate:'tool_call_update',toolCallId:'tool-'+agent._qaMessages.length,status:'completed'}});agent.emit('session-update',{sessionId:id,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text}}});agent._qaRun.active=false;agent._qaResolve?.({stopReason:'end_turn'});agent._qaResolve=null;};
   const module=await import(pathToFileURL(path.join(root,'electron','window-session.mjs')).href);global.__harnessSessions=module;
   await import(pathToFileURL(path.join(root,'electron','main.mjs')).href);
+  global.__harnessPreview=await import(pathToFileURL(path.join(root,'electron','execution-preview.mjs')).href);
 })().catch(error=>{console.error(error.stack);app.exit(1);});

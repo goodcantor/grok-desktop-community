@@ -633,6 +633,7 @@ export function ensureAgent(ws, cwd, opts = {}) {
       clientVersion: app.getVersion(),
       windowId: ws.win?.id,
       previewExecutionId: ws.recordId,
+      previewGeneration: gen,
     });
 
     if (!isSessionLive(ws, gen)) {
