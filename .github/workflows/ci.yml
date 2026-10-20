@@ -39,14 +39,6 @@ jobs:
       - run: npm test
       - run: npm audit --audit-level=high
       - run: npm run build
-      - name: Native shell (isolated ACP fixture)
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a -s '-screen 0 1920x1080x24' npm run test:native
-          else
-            npm run test:native
-          fi
       - name: Build development package (no signing secrets)
         shell: bash
         env:
@@ -56,6 +48,14 @@ jobs:
             node scripts/package.mjs --dir --publish never -c.mac.identity=null -c.mac.notarize=false
           else
             node scripts/package.mjs --dir --publish never
+          fi
+      - name: Native shell (isolated ACP fixture)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s '-screen 0 1920x1080x24' npm run test:native
+          else
+            npm run test:native
           fi
       - name: Packaged shell (synthetic home, missing CLI)
         shell: bash
