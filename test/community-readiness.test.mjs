@@ -1,3 +1,4 @@
+import {executionHasActiveWork} from '../electron/execution-work.mjs';
 import {validateQueue} from '../electron/queue-store.mjs';
 import {configureCommunityDataPath} from '../electron/app-identity.mjs';
 import {installedPtyShells} from '../electron/pty-shells.mjs';
@@ -38,3 +39,11 @@ test('POSIX terminals discover native shells without Windows executables',()=>{f
 test('Community uses its own UI directory and preserves isolated profiles',()=>{for(const custom of [false,true]){let data=custom?path.resolve('qa/isolated'):path.resolve('qa/app-data/Grok Desktop Community');const app={getName:()=> 'Grok Desktop Community',getPath:key=>key==='userData'?data:path.resolve('qa/app-data'),setPath:(_key,value)=>{data=value}};configureCommunityDataPath(app);assert.equal(data,custom?path.resolve('qa/isolated'):path.resolve('qa/app-data/grok-desktop-community'));}});
 
 test('invalid recovery data is rejected instead of overwritten',()=>{assert.throws(()=>validateQueue({version:99}),/retained/);assert.throws(()=>validateQueue({version:2,pending:[{id:'one',text:'one',images:null}]}),/retained/);assert.deepEqual(validateQueue([entry('legacy')]),[entry('legacy')]);});
+
+test('close/update guards include goals and background work between prompt turns',()=>{
+ const agent={ready:true,getRunState:()=>({active:false}),goalState:{status:'active'}};
+ assert.equal(executionHasActiveWork({agent}),true);agent.goalState.status='paused';assert.equal(executionHasActiveWork({agent}),false);
+ assert.equal(executionHasActiveWork({agent,backgroundTasks:[{status:'running'}]}),true);
+ assert.equal(executionHasActiveWork({agent:{...agent,ready:false},backgroundTasks:[{status:'running'}]}),false);
+ assert.equal(executionHasActiveWork({pendingUserQuestions:new Map([['one',{}]])}),true);
+});

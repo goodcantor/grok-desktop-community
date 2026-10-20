@@ -1,3 +1,5 @@
+import { executionHasActiveWork } from './execution-work.mjs';
+import { applyBackgroundUpdate } from '../shared/background-tasks.mjs';
 import { assertApplicationSender } from './ipc-trust.mjs';
 import fs from 'node:fs';
 import { mapInterjectIpcError } from '../shared/acp-interject.mjs';
@@ -39,7 +41,7 @@ import { applySessionUpdate, appendUserMessage } from "../shared/session-timelin
 export function allExecutionSessions() { return [...windowSessions.values()].flatMap(host => [...(host.records?.values() || [host])]); }
 export function executionCatalog(host) {
   return [...(host.records?.values() || [])].filter(row => row.lastSessionId).map(row => ({
-    ...executionScope(row), cwd: row.lastCwd, active: Boolean(row.queue?.running || row.agent?.getRunState().active),
+    ...executionScope(row), cwd: row.lastCwd, active: executionHasActiveWork(row),
     waiting: pendingPermissionCount(ownerIdFor(row)) + ['pendingPlanApprovals','pendingUserQuestions','pendingFolderTrust','pendingMcpElicits'].reduce((n,key)=>n+row[key].size,0),
     status: row.runtimeStatus, unseen: row.unseen, selected: host.selected === row,
   }));
@@ -254,7 +256,7 @@ export function send(ws, channel, payload) {
   if(channel==='agent:exit'||channel==='agent:error')ws.runtimeStatus='failed';
   if(channel==='agent:ready')ws.runtimeStatus=ws.queue?.running?'running':'idle';
   if (ws.host && (channel.startsWith('agent:') || channel.startsWith('execution:'))) {
-    if(channel==='agent:session-update') ws.liveItems=applySessionUpdate(ws.liveItems||[],payload);
+    if(channel==='agent:session-update'){ws.liveItems=applySessionUpdate(ws.liveItems||[],payload);const previous=ws.backgroundTasks;ws.backgroundTasks=applyBackgroundUpdate(previous||[],payload);if(previous!==ws.backgroundTasks)publishExecutions(ws);}
     ws.win.webContents.send('execution:event',{scope:executionScope(ws),channel,payload});
     if(/request|dismiss|exit|error|ready|permissions-cleared/.test(channel)) publishExecutions(ws);
     if(ws.host.selected!==ws) return;

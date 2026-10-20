@@ -1,3 +1,4 @@
+import { executionHasActiveWork } from './execution-work.mjs';
 import { configureCommunityDataPath } from './app-identity.mjs';
 import { terminalIsolationStatus } from './terminal-isolation.mjs';
 import { registerProjectFilesIpc } from "./ipc/project-files.mjs";
@@ -615,7 +616,7 @@ function createWindow(opts = {}) {
   let closeConfirmed=false;
   win.on('close',event=>{
     const host=windowSessions.get(win.id);
-    const running=[...(host?.records?.values()||[])].filter(row=>row.queue?.running||row.agent?.getRunState().active);
+    const running=[...(host?.records?.values()||[])].filter(row=>executionHasActiveWork(row));
     if(!running.length||closeConfirmed||appQuitting)return;
     event.preventDefault();
     const decision=dialog.showMessageBoxSync(win,{type:'question',buttons:['Keep working','Stop tasks and close'],defaultId:0,cancelId:0,message:`${running.length} chat${running.length===1?' is':'s are'} still working`,detail:'Closing this window stops its agents. Your history and unsent messages will be kept.'});
@@ -655,7 +656,7 @@ async function applyNewChatDefaults(ws,result) {
 
 const unlockUpdate=async()=>{for(const host of windowSessions.values())if(!host.win.isDestroyed())await host.win.webContents.executeJavaScript('document.documentElement.inert=false').catch(()=>{});};
 const updateHooks={unlockUpdate,prepareUpdate:async()=>{
-  const blocked=()=>allExecutionSessions().some(record=>record.queue?.running||record.agent?.getRunState().active||executionCatalog(record.host).some(row=>row.waiting));
+  const blocked=()=>allExecutionSessions().some(record=>executionHasActiveWork(record)||executionCatalog(record.host).some(row=>row.waiting));
   if(blocked())return false;
   for(const host of windowSessions.values()){
     const ready=await host.win.webContents.executeJavaScript('Boolean(window.__communityReady && !window.__communityUnsavedEdits && (document.documentElement.inert=true))').catch(()=>false);
@@ -668,7 +669,7 @@ const updateHooks={unlockUpdate,prepareUpdate:async()=>{
 const ipcMain=scopedExecutionIpc(nativeIpcMain,{isClosing:()=>isQuittingForUpdate()});
 async function resolveConcurrentChat(ws,cwd) {
   if(!fs.existsSync(path.join(cwd,'.git')))return {cwd,mode:'new'};
-  const other=allExecutionSessions().find(row=>row.host===ws.host&&row.lastCwd===cwd&&(row.queue?.running||row.agent?.getRunState().active));
+  const other=allExecutionSessions().find(row=>row.host===ws.host&&row.lastCwd===cwd&&(executionHasActiveWork(row)));
   if(!other)return {cwd,mode:'new'};
   const choice=dialog.showMessageBoxSync(ws.win,{type:'question',buttons:['Return to running chat','Use shared folder','Create Grok worktree'],defaultId:0,cancelId:0,message:'Another chat is working in this checkout',detail:'A shared folder lets both agents edit the same files. A Grok worktree gives the new task a separate checkout.'});
   if(choice===0)return {cwd,mode:'resume',sessionId:other.lastSessionId};
@@ -1654,7 +1655,7 @@ app.on("window-all-closed", () => {
 // electron-updater quitAndInstall so "Restart now" appears to do nothing.
 let quitTasksConfirmed=false;
 app.on("before-quit", (event) => {
-  const running=allExecutionSessions().filter(record=>record.queue?.running||record.agent?.getRunState().active);
+  const running=allExecutionSessions().filter(record=>executionHasActiveWork(record));
   if(running.length&&!quitTasksConfirmed){
     event.preventDefault();
     const owner=BrowserWindow.getFocusedWindow(),options={type:'question',buttons:['Keep working','Stop tasks and quit'],defaultId:0,cancelId:0,message:`${running.length} chat${running.length===1?' is':'s are'} still working`,detail:'Quitting stops all agents. Your history and saved unsent messages will be kept.'};
