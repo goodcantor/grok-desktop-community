@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { needsFolderTrust } from "../../../shared/mcp-status.mjs";
-import type { McpServerInfo } from "../../vite-env";
+import type { McpServerInfo } from "../../types/desktop";
 
 type DoctorView = {
   error?: string | null;

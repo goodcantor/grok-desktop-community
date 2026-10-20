@@ -1,11 +1,19 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { usePendingGates } from "./hooks/usePendingGates";
+import type { AskUserRequest } from "./components/AskUserDialog";
+import { ActivityView } from "./components/ActivityView";
+import { localFileReference } from "../shared/conversation-view.mjs";
+import { InteractionDock } from "./components/InteractionDock";
+import { useAuthentication } from "./hooks/useAuthentication";
+import { useHistoryReader } from "./hooks/useHistoryReader";
+import { useAppPreferences } from "./hooks/useAppPreferences";
+import { useSessionModel } from "./hooks/useSessionModel";
+import { useConversationCompaction } from "./hooks/useConversationCompaction";
+import { TerminalDock } from "./components/TerminalDock";
+import { UsageHost } from "./components/UsageView";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "./components/BrandMark";
+import { ChatActivity } from "./components/ChatActivity";
+import { PromptQueue } from "./components/PromptQueue";
 import { MessageList } from "./components/MessageList";
 import { SidePanel } from "./components/SidePanel";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -19,11 +27,15 @@ import {
   type WorktreeDialogState,
 } from "./components/WorktreeDialog";
 import { ApprovalsDock } from "./components/ApprovalsDock";
-import { AppSidebar } from "./components/AppSidebar";
+import { HistorySidebar } from "./components/HistorySidebar";
+import { CommandPalette } from "./components/CommandPalette";
+import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { ChatTopbar } from "./components/ChatTopbar";
 import { ColumnResizeHandle } from "./components/ColumnResizeHandle";
 import { WelcomeView } from "./components/WelcomeView";
 import { Composer } from "./components/Composer";
+import type { DraftMode } from "./components/ComposerSettings";
+import { useComposerRuntime } from "./hooks/useComposerRuntime";
 import { useColumnLayout } from "./hooks/useColumnLayout";
 import {
   DESKTOP_COMMANDS,
@@ -36,17 +48,10 @@ import {
   runDesktopCommand,
 } from "./lib/desktop-commands";
 import { enterPlanMode } from "./lib/enter-plan-mode";
-import { isMissingBinaryError, type ConnState } from "./lib/conn";
-import {
-  normalizeAutoCompactAt,
-  shouldAutoCompact,
-  type AutoCompactAt,
-} from "../shared/auto-compact.mjs";
+import type { ConnState } from "./lib/conn";
 import { PrivacyProvider } from "./lib/privacy-context";
 import { redactSensitiveText } from "./lib/privacy";
 import { hideBootSplash } from "./lib/boot-splash";
-import { applyTheme, readStoredTheme, storeTheme } from "./lib/theme";
-import { readHideThinking, storeHideThinking } from "./lib/hide-thinking";
 import { finalizeOpenTools, uid } from "./lib/timeline";
 import { useAgentEvents } from "./hooks/useAgentEvents";
 import { useAgentSafety } from "./hooks/useAgentSafety";
@@ -56,54 +61,32 @@ import { useStickToBottom } from "./hooks/useStickToBottom";
 import { useUnsavedGuard } from "./hooks/useUnsavedGuard";
 import type {
   AppInfo,
-  AuthStatus,
-  AvailableModel,
   BackboneSummary,
-  LoginProgress,
   OpenCheckoutRow,
   SessionSummary,
   TimelineItem,
-} from "./vite-env";
+} from "./types/desktop";
 
 export default function App() {
+  const [conversationView,setConversationView]=useState<"chat"|"activity">("chat");
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false),
+    [connectionSlow, setConnectionSlow] = useState(false);
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [backbone, setBackbone] = useState<BackboneSummary | null>(null);
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authMessage, setAuthMessage] = useState<string | null>(null);
-  const [loginProgress, setLoginProgress] = useState<LoginProgress | null>(
-    null,
-  );
   const [project, setProject] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  /** Live session model from ACP (session/new|load). */
-  const [modelId, setModelId] = useState<string | null>(null);
-  const [modelName, setModelName] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
-  /** Optimistic pick while session/set_model is in flight. */
-  const [pendingModelId, setPendingModelId] = useState<string | null>(null);
-  /** Bumped on failed switch so the native <select> remounts onto the previous id. */
-  const [modelSelectEpoch, setModelSelectEpoch] = useState(0);
   const [conn, setConn] = useState<ConnState>("idle");
+  const {
+    runtime: composerRuntime,
+    refresh: refreshComposerRuntime,
+    setRuntime: setComposerRuntime,
+  } = useComposerRuntime(sessionId, conn);
+  const composerModeLock = useRef(false);
   const [openingLabel, setOpeningLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<TimelineItem[]>([]);
-  const [theme, setTheme] = useState<"dark" | "light">(readStoredTheme);
-  const [hideThinking, setHideThinking] = useState(readHideThinking);
-  const [privacyMode, setPrivacyMode] = useState(false);
-  /** SpaceXAI coding-data share; default opt-in (matches CLI /privacy). */
-  const [codingDataOptIn, setCodingDataOptIn] = useState(true);
-  const [codingDataNote, setCodingDataNote] = useState<string | undefined>();
-  const [debugLogging, setDebugLogging] = useState(false);
-  const [debugLogPath, setDebugLogPath] = useState("");
-  const [crashLogPath, setCrashLogPath] = useState("");
-  const [allowPrerelease, setAllowPrerelease] = useState(false);
-  const [autoCompactAt, setAutoCompactAt] = useState<AutoCompactAt>("off");
-  const autoCompactFiredRef = useRef({ sessionId: "", tokens: 0 });
-  const autoCompactInFlightRef = useRef(false);
-  const autoCompactFailedAtRef = useRef({ sessionId: "", tokens: 0 });
-  const autoCompactUnsupportedRef = useRef(false);
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const [gitDetached, setGitDetached] = useState(false);
   const { setFilesDirty, confirmDiscardFiles } = useUnsavedGuard();
@@ -125,10 +108,6 @@ export default function App() {
   const openingRef = useRef(false);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
-  const modelApplyLock = useRef(false);
-  const modelApplyGen = useRef(0);
-  const loginGen = useRef(0);
-  const [loginDeviceAuth, setLoginDeviceAuth] = useState(false);
 
   const appendSystem = useCallback((text: string) => {
     setItems((prev) => [
@@ -137,13 +116,53 @@ export default function App() {
     ]);
   }, []);
 
+  const {
+    theme,
+    hideThinking,
+    privacyMode,
+    codingDataOptIn,
+    codingDataNote,
+    debugLogging,
+    debugLogPath,
+    crashLogPath,
+    allowPrerelease,
+    autoCompactAt,
+    hydratePreferences,
+    applyHideThinking,
+    setAppTheme,
+    applyPrivacyMode,
+    applyCodingDataOptIn,
+    applyDebugLogging,
+    applyAllowPrerelease,
+    applyAutoCompactAt,
+  } = useAppPreferences({
+    setError,
+    appendSystem,
+    offerRestart: () => setOfferAgentRestart(true),
+  });
+
+  const { historyPage, historyBusy, clearHistory, openHistory, pageHistory } =
+    useHistoryReader({
+      project,
+      sessionId,
+      conn,
+      timelineRef,
+      setError,
+      confirmDiscardFiles,
+      canNavigate: () =>
+        !openingRef.current && !compactingRef.current,
+      openProject: (cwd, options) => openProject(cwd, options),
+    });
+
   const clearOfferAgentRestart = useCallback(() => {
     setOfferAgentRestart(false);
-  }, []);
+    clearHistory();
+  }, [clearHistory]);
 
   const {
     permissionMode,
     reasoningEffort,
+    setReasoningEffort,
     allowOutsideProject,
     sandboxTerminal,
     sandboxStatus,
@@ -154,15 +173,49 @@ export default function App() {
     applySandboxTerminal,
   } = useAgentSafety({ setError, appendSystem });
 
-  const refreshAuth = useCallback(async () => {
-    const status = await window.grokDesktop.getAuthStatus();
-    setAuth(status);
-    return status;
-  }, []);
+  const {
+    modelId,
+    modelName,
+    availableModels,
+    setModelId,
+    setModelName,
+    setAvailableModels,
+    applyModel,
+  } = useSessionModel({
+    sessionId,
+    sessionIdRef,
+    setError,
+    setReasoningEffort,
+  });
 
+  const {
+    auth,
+    setAuth,
+    authBusy,
+    authMessage,
+    loginProgress,
+    loginDeviceAuth,
+    refreshAuth,
+    handleLogin,
+    handleCancelLogin,
+    handleSubmitLoginCode,
+    handleLogout,
+    handleSetApiKey,
+  } = useAuthentication({
+    setError,
+    confirmDiscardFiles,
+    setBackbone,
+    leaveProject: () => leaveProject(),
+    refreshBackbone: (cwd) => refreshBackbone(cwd),
+    onAuthenticated: () => bootstrap(),
+  });
+
+  const currentProjectRef = useRef(project);
+  currentProjectRef.current = project;
   const refreshBackbone = useCallback(async (cwd?: string) => {
     const summary = await window.grokDesktop.inspectBackbone(cwd);
-    setBackbone(summary);
+    if (!cwd || !currentProjectRef.current || cwd === currentProjectRef.current)
+      setBackbone(summary);
     return summary;
   }, []);
 
@@ -171,17 +224,7 @@ export default function App() {
       const i = await window.grokDesktop.getInfo();
       setInfo(i);
       hydrateFromInfo(i);
-      setPrivacyMode(Boolean(i.privacyMode));
-      setCodingDataOptIn(i.codingDataOptIn !== false);
-      setCodingDataNote(i.codingDataStatus?.note);
-      setDebugLogging(Boolean(i.debugLogging));
-      setDebugLogPath(i.debugLogPath || "");
-      setCrashLogPath(i.crashLogPath || "");
-      setAllowPrerelease(Boolean(i.allowPrerelease));
-      setAutoCompactAt(normalizeAutoCompactAt(i.autoCompactAt));
-      const nextTheme = i.theme === "light" ? "light" : "dark";
-      setTheme(nextTheme);
-      applyTheme(nextTheme);
+      hydratePreferences(i);
       setAuth(i.auth);
       if (i.auth.authenticated && !i.auth.expired) {
         void refreshBackbone(i.lastProject || undefined);
@@ -189,7 +232,7 @@ export default function App() {
     } catch {
       /* WelcomeView still renders; native splash waits for first paint, not this. */
     }
-  }, [refreshBackbone, hydrateFromInfo]);
+  }, [refreshBackbone, hydrateFromInfo, hydratePreferences]);
 
   useEffect(() => {
     hideBootSplash();
@@ -210,21 +253,30 @@ export default function App() {
     return `${items.length}:${last.id}:${last.kind}:${tail}`;
   }, [items]);
 
-  const { pinToBottom } = useStickToBottom(
+  const { pinToBottom, atLatest } = useStickToBottom(
     timelineRef,
-    timelineScrollKey,
-    `${project ?? ""}:${sessionId ?? ""}`,
+    historyPage ? "historical-window" : timelineScrollKey,
+    `${project ?? ""}:${sessionId ?? ""}:${historyPage?.start ?? "live"}`,
+    conn === "connecting",
   );
 
   const {
     promptQueue,
+    queuePaused,
+    changeQueuePaused,
+    turnOutcome,
     promptQueueRef,
     sendNowRef,
     clearPromptQueue,
     removeQueued,
+    editQueued,
+    moveQueued,
+    failedDelivery,
+    clearFailedDelivery,
     submitFromComposer,
     sendQueuedNow,
   } = usePromptDelivery({
+    sessionId,
     project,
     conn,
     busyRef,
@@ -255,9 +307,7 @@ export default function App() {
     syncAgentGatesFromMain,
     onPermission,
     onAllowAllPermissions,
-    allowWritesThisSession,
     onAllowWritesThisSession,
-    onRevokeWritesThisSession,
     onPlanApproval,
     onUserQuestion,
     onFolderTrust,
@@ -301,66 +351,52 @@ export default function App() {
     await refreshAuth();
   }, [leaveProject, refreshAuth]);
 
-  const { openProject, openSession, restartAgent, isAuthError } =
-    useProjectSession({
-      auth,
-      project,
-      busyRef,
-      openingRef,
-      promptQueueRef,
-      sendNowRef,
-      clearSessionScoped,
-      revokeWritesThisSession,
-      hydrateBackgroundTasks,
-      hydrateSessionUsage,
-      hydrateSessionMode: setSessionMode,
-      syncAgentGatesFromMain,
-      hydrateFromInfo,
-      refreshAuth,
-      refreshBackbone,
-      setBackbone,
-      onOpenApplied: clearOfferAgentRestart,
-      setAuth,
-      setInfo,
-      setProject,
-      setSessionId,
-      setSessions,
-      setModelId,
-      setModelName,
-      setAvailableModels,
-      setConn,
-      setOpeningLabel,
-      setError,
-      setItems,
-      setAgentCommands,
-      clearPromptQueue,
-      onMissingBinary,
-      onCheckoutConflict: (conflict, cwd) => {
-        setWorktreeError(null);
-        setWorktreeDialog({ kind: "conflict", conflict, pendingCwd: cwd });
-      },
-    });
-
-  const renameSession = useCallback(
-    async (opts: { sessionId: string; title: string }) => {
-      if (!project) return;
-      try {
-        const res = await window.grokDesktop.renameSession({
-          cwd: project,
-          sessionId: opts.sessionId,
-          title: opts.title,
-        });
-        if (res?.sessions) setSessions(res.sessions);
-        else setSessions(await window.grokDesktop.listSessions(project));
-        setError(null);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setError(msg);
-        throw e instanceof Error ? e : new Error(msg);
-      }
+  const {
+    openProject,
+    openSession,
+    restartAgent,
+    recoverConnection,
+    isAuthError,
+  } = useProjectSession({
+    defaultWorkspace: info?.defaultWorkspace,
+    currentSessionId: sessionId,
+    auth,
+    project,
+    busyRef,
+    openingRef,
+    promptQueueRef,
+    sendNowRef,
+    clearSessionScoped,
+    revokeWritesThisSession,
+    hydrateBackgroundTasks,
+    hydrateSessionUsage,
+    hydrateSessionMode: setSessionMode,
+    syncAgentGatesFromMain,
+    hydrateFromInfo,
+    refreshAuth,
+    refreshBackbone,
+    setBackbone,
+    onOpenApplied: clearOfferAgentRestart,
+    setAuth,
+    setInfo,
+    setProject,
+    setSessionId,
+    setSessions,
+    setModelId,
+    setModelName,
+    setAvailableModels,
+    setConn,
+    setOpeningLabel,
+    setError,
+    setItems,
+    setAgentCommands,
+    clearPromptQueue,
+    onMissingBinary,
+    onCheckoutConflict: (conflict, cwd) => {
+      setWorktreeError(null);
+      setWorktreeDialog({ kind: "conflict", conflict, pendingCwd: cwd });
     },
-    [project],
-  );
+  });
 
   const deleteSession = useCallback(
     async (opts: { sessionId: string }) => {
@@ -379,7 +415,8 @@ export default function App() {
         setSessions(nextList);
         setError(null);
         if (wasCurrent) {
-          const next = nextList.find((s) => s.id !== opts.sessionId) || nextList[0];
+          const next =
+            nextList.find((s) => s.id !== opts.sessionId) || nextList[0];
           if (next) await openSession({ mode: "resume", sessionId: next.id });
           else await openSession({ mode: "new" });
         }
@@ -440,35 +477,35 @@ export default function App() {
 
   const pendingOpenTried = useRef(false);
   useEffect(() => {
-    if (!signedIn || pendingOpenTried.current) return;
+    if (!signedIn) {
+      pendingOpenTried.current = false;
+      return;
+    }
+    if (!info?.defaultWorkspace || pendingOpenTried.current) return;
     pendingOpenTried.current = true;
-    void window.grokDesktop.takePendingOpen().then((pending) => {
-      if (!pending?.cwd) return;
-      void openProject(pending.cwd, {
-        allowSameCheckout: pending.allowSameCheckout,
+    void window.grokDesktop
+      .takePendingOpen()
+      .then((pending) => {
+        void openProject(pending?.cwd || info.defaultWorkspace, {
+          allowSameCheckout: pending?.cwd ? pending.allowSameCheckout : true,
+        });
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : String(e));
       });
-    });
-  }, [signedIn, openProject]);
+  }, [signedIn, info?.defaultWorkspace, openProject]);
 
   const pickProject = async () => {
     if (!signedIn || conn === "connecting") {
       if (!signedIn) setError("Sign in to Grok first.");
       return;
     }
-    if (!confirmDiscardFiles()) return;
     const cwd = await window.grokDesktop.pickProject();
-    if (cwd) await openProject(cwd);
+    if (cwd && (cwd === project || confirmDiscardFiles()))
+      await openProject(cwd);
   };
 
   const isOpening = conn === "connecting";
-
-  useEffect(() => {
-    return window.grokDesktop.on("auth:login-progress", (payload) => {
-      const next = (payload || {}) as LoginProgress;
-      setLoginProgress(next);
-      if (next.output) setAuthMessage(next.output);
-    });
-  }, []);
 
   useEffect(() => {
     void window.grokDesktop.setSettingsOpen(settingsOpen);
@@ -498,168 +535,6 @@ export default function App() {
     });
   }, [project, createWorktreeInNewWindow]);
 
-  const handleLogin = async (deviceAuth = false) => {
-    const gen = ++loginGen.current;
-    setAuthBusy(true);
-    setLoginDeviceAuth(deviceAuth);
-    setLoginProgress(null);
-    setAuthMessage(
-      deviceAuth
-        ? "Starting device-code login…"
-        : "Opening browser for Grok sign-in…",
-    );
-    setError(null);
-    try {
-      const result = await window.grokDesktop.login({ deviceAuth });
-      if (gen !== loginGen.current) return;
-      if (result.status) setAuth(result.status);
-      if (result.output) setAuthMessage(result.output);
-      if (result.ok || result.status?.authenticated) {
-        setLoginProgress(null);
-        setAuthMessage(result.output || "Signed in successfully.");
-        await refreshBackbone();
-        await bootstrap();
-      } else if (result.error) {
-        setAuthMessage(result.error);
-        setError(result.error);
-        if (isMissingBinaryError(result.error)) {
-          await refreshAuth();
-        }
-      }
-    } catch (e: unknown) {
-      if (gen !== loginGen.current) return;
-      const msg = e instanceof Error ? e.message : String(e);
-      setAuthMessage(msg);
-      setError(msg);
-      if (isMissingBinaryError(msg)) {
-        await refreshAuth();
-      }
-    } finally {
-      if (gen === loginGen.current) {
-        setAuthBusy(false);
-        void refreshAuth();
-      }
-    }
-  };
-
-  const handleCancelLogin = async () => {
-    loginGen.current += 1;
-    await window.grokDesktop.cancelLogin();
-    setAuthBusy(false);
-    setLoginDeviceAuth(false);
-    setLoginProgress(null);
-    setAuthMessage("Login cancelled.");
-    void refreshAuth();
-  };
-
-  const handleSubmitLoginCode = async (code: string) => {
-    const result = await window.grokDesktop.submitLoginInput(code);
-    if (result.ok) {
-      setAuthMessage("Code sent. Waiting for Grok to finish sign-in…");
-      return;
-    }
-    setAuthMessage(result.error || "Could not send the code.");
-  };
-
-  // Model is session-scoped; drop the label when the agent/session goes away.
-  useEffect(() => {
-    if (!sessionId) {
-      setModelId(null);
-      setModelName(null);
-      setAvailableModels([]);
-    }
-    modelApplyGen.current += 1;
-    modelApplyLock.current = false;
-    setPendingModelId(null);
-  }, [sessionId]);
-
-  const applyModel = useCallback(
-    async (nextId: string) => {
-      if (!nextId || nextId === modelId || modelApplyLock.current) return;
-      const sessionAtStart = sessionIdRef.current;
-      const gen = modelApplyGen.current;
-      modelApplyLock.current = true;
-      setPendingModelId(nextId);
-      try {
-        const result = await window.grokDesktop.setModel(nextId);
-        if (
-          gen !== modelApplyGen.current ||
-          sessionAtStart !== sessionIdRef.current
-        ) {
-          return;
-        }
-        if (result.agentSynced === false) {
-          setPendingModelId(null);
-          setModelSelectEpoch((n) => n + 1);
-          setError(
-            result.error
-              ? `Could not switch model (${result.error}).`
-              : "Could not switch model.",
-          );
-          return;
-        }
-        setModelId(result.modelId || nextId);
-        setModelName(result.modelName || null);
-        if (Array.isArray(result.availableModels)) {
-          setAvailableModels(result.availableModels);
-        }
-        setPendingModelId(null);
-        setError(null);
-        const label = result.modelName
-          ? result.modelId && result.modelName !== result.modelId
-            ? `${result.modelName} (${result.modelId})`
-            : result.modelName
-          : result.modelId || nextId;
-        appendSystem(`Model: ${label}`);
-      } catch (e: unknown) {
-        if (
-          gen !== modelApplyGen.current ||
-          sessionAtStart !== sessionIdRef.current
-        ) {
-          return;
-        }
-        setPendingModelId(null);
-        setModelSelectEpoch((n) => n + 1);
-        const msg = e instanceof Error ? e.message : String(e);
-        setError(`Failed to set model: ${msg}`);
-      } finally {
-        if (gen === modelApplyGen.current) {
-          modelApplyLock.current = false;
-        }
-      }
-    },
-    [modelId, appendSystem],
-  );
-
-  const handleLogout = async () => {
-    if (!confirmDiscardFiles()) return;
-    setAuthBusy(true);
-    try {
-      await leaveProject();
-      const res = await window.grokDesktop.logout();
-      if (res.status) setAuth(res.status);
-      setAuthMessage(res.message || "Signed out");
-      setBackbone(null);
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const handleSetApiKey = async (key: string) => {
-    setAuthBusy(true);
-    setError(null);
-    try {
-      const res = await window.grokDesktop.setApiKey(key);
-      setAuth(res.status);
-      if (res.ok) {
-        setAuthMessage("API key set for this session.");
-        await refreshBackbone();
-      }
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
   const allCommands = useMemo(
     () =>
       mergeCommands({
@@ -670,75 +545,17 @@ export default function App() {
     [backbone?.skills, agentCommands],
   );
 
-  const compactingRef = useRef(false);
-  const [compacting, setCompacting] = useState(false);
-
-  const runCompress = useCallback(
-    async (hint?: unknown) => {
-      if (!project || openingRef.current) return false;
-      if (conn !== "online") {
-        appendSystem("Compress is available when the agent is idle.");
-        return false;
-      }
-      if (compactingRef.current) return false;
-      if (typeof window.grokDesktop.compact !== "function") {
-        appendSystem(
-          "Restart this Grok Desktop window to enable Compress (Electron preload does not hot-reload).",
-        );
-        return false;
-      }
-      const note = typeof hint === "string" ? hint.trim() : "";
-      compactingRef.current = true;
-      setCompacting(true);
-      try {
-        const result = (await window.grokDesktop.compact(note)) as {
-          ok?: boolean;
-          message?: string;
-          tokens_before?: number;
-          tokensBefore?: number;
-          tokens_after?: number;
-          tokensAfter?: number;
-        } | null;
-        if (result && result.ok === false) {
-          throw new Error(result.message || "Compress failed");
-        }
-        const before = Number(result?.tokens_before ?? result?.tokensBefore);
-        const after = Number(result?.tokens_after ?? result?.tokensAfter);
-        // Empty CompactConversationResponse is success; counts come from
-        // session_notification, not the RPC body.
-        if (Number.isFinite(before) && Number.isFinite(after) && before > 0) {
-          appendSystem(
-            `Conversation compacted: ${before.toLocaleString()} → ${after.toLocaleString()} tokens.`,
-          );
-        }
-        const mark = Math.max(
-          sessionUsage.lastContextTokens,
-          Number.isFinite(after) && after > 0 ? after : 0,
-        );
-        autoCompactFiredRef.current = {
-          sessionId: sessionIdRef.current || "",
-          tokens: mark,
-        };
-        return true;
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (
-          /does not support Compress|not available on this Grok CLI|-32601|method not found/i.test(
-            msg,
-          )
-        ) {
-          autoCompactUnsupportedRef.current = true;
-        }
-        setError(msg || "Compress failed");
-        appendSystem(`Compress failed: ${msg}`);
-        return false;
-      } finally {
-        compactingRef.current = false;
-        setCompacting(false);
-      }
-    },
-    [project, conn, sessionUsage.lastContextTokens, appendSystem, setError],
-  );
+  const { compacting, compactingRef, runCompress } = useConversationCompaction({
+    project,
+    sessionId,
+    sessionIdRef,
+    openingRef,
+    conn,
+    lastContextTokens: sessionUsage.lastContextTokens,
+    autoCompactAt,
+    appendSystem,
+    setError,
+  });
 
   const handleLocalCommand = useCallback(
     async (name: string, args = "") => {
@@ -746,6 +563,44 @@ export default function App() {
         name,
         {
           newChat: () => void openSession({ mode: "new" }),
+          chat: async () => {
+            try {
+              const result = await window.grokDesktop.setSessionMode("default");
+              if (!result.agentSynced) {
+                setError(result.error || "Could not leave plan mode");
+                return;
+              }
+              setSessionMode(result.modeId || "default");
+              setError(null);
+            } catch (e: unknown) {
+              setError(e instanceof Error ? e.message : String(e));
+            }
+          },
+          model: async (value) => {
+            const query = value.trim().toLowerCase();
+            const model = availableModels.find(
+              (m) =>
+                m.modelId.toLowerCase() === query ||
+                m.name?.toLowerCase() === query,
+            );
+            if (!model) {
+              setError(
+                `Choose a model in the top bar. Available: ${availableModels.map((m) => m.modelId).join(", ")}`,
+              );
+              return;
+            }
+            await applyModel(model.modelId);
+          },
+          effort: async (value) => {
+            const effort = value.trim().toLowerCase();
+            if (!["low", "medium", "high", "xhigh"].includes(effort)) {
+              setError("Usage: /effort low | medium | high | xhigh");
+              return;
+            }
+            await applyReasoningEffort(
+              effort as "low" | "medium" | "high" | "xhigh",
+            );
+          },
           toggleAlwaysApprove: () =>
             applyPermissionMode(nextAlwaysApproveMode(permissionMode)),
           compact: (hint) => {
@@ -778,11 +633,6 @@ export default function App() {
                 return;
               }
               await window.grokDesktop.openPreview(a);
-              appendSystem(
-                a
-                  ? `Preview opened · ${a} (drag that window to another screen).`
-                  : "Preview window opened — drag it to another screen.",
-              );
             } catch (e: unknown) {
               const msg = e instanceof Error ? e.message : String(e);
               setError(msg || "Preview failed");
@@ -794,6 +644,9 @@ export default function App() {
     },
     [
       openSession,
+      availableModels,
+      applyModel,
+      applyReasoningEffort,
       applyPermissionMode,
       permissionMode,
       appendSystem,
@@ -806,151 +659,37 @@ export default function App() {
     ],
   );
 
-  useEffect(() => {
-    autoCompactFiredRef.current = { sessionId: sessionId || "", tokens: 0 };
-    autoCompactFailedAtRef.current = { sessionId: sessionId || "", tokens: 0 };
-    autoCompactInFlightRef.current = false;
-    autoCompactUnsupportedRef.current = false;
-  }, [sessionId]);
-
-  useEffect(() => {
-    autoCompactUnsupportedRef.current = false;
-    autoCompactFailedAtRef.current = { sessionId: "", tokens: 0 };
-  }, [autoCompactAt]);
-
-  useEffect(() => {
-    if (!project || !sessionId) return;
-    if (conn !== "online") return;
-    if (openingRef.current) return;
-    if (autoCompactInFlightRef.current) return;
-    if (autoCompactUnsupportedRef.current) return;
-    const ctx = sessionUsage.lastContextTokens;
-    const fired = autoCompactFiredRef.current;
-    const already =
-      fired.sessionId === sessionId ? fired.tokens : 0;
-    if (
-      !shouldAutoCompact({
-        at: autoCompactAt,
-        lastContextTokens: ctx,
-        alreadyFiredAt: already,
-      })
-    ) {
-      return;
-    }
-    const failed = autoCompactFailedAtRef.current;
-    if (failed.sessionId === sessionId && failed.tokens === ctx) {
-      return;
-    }
-    appendSystem(
-      `Auto-compress: context is ${ctx.toLocaleString()} tokens (threshold ${autoCompactAt}).`,
-    );
-    autoCompactInFlightRef.current = true;
-    void runCompress().then((ok) => {
-      autoCompactInFlightRef.current = false;
-      if (ok) {
-        autoCompactFailedAtRef.current = { sessionId: "", tokens: 0 };
-      } else if (!autoCompactUnsupportedRef.current) {
-        autoCompactFailedAtRef.current = { sessionId, tokens: ctx };
-      }
-    });
-  }, [
-    project,
-    sessionId,
-    conn,
-    sessionUsage.lastContextTokens,
-    autoCompactAt,
-    runCompress,
-    appendSystem,
-  ]);
-
-  const applyAutoCompactAt = async (next: AutoCompactAt) => {
-    setAutoCompactAt(next);
+  const changeComposerMode = async (mode: DraftMode): Promise<boolean> => {
+    if (composerModeLock.current || busyRef.current || openingRef.current)
+      return false;
+    const expected = sessionIdRef.current;
+    const active = () =>
+      sessionIdRef.current === expected && !openingRef.current;
+    composerModeLock.current = true;
     try {
-      const value = await window.grokDesktop.setAutoCompactAt(next);
-      setAutoCompactAt(normalizeAutoCompactAt(value));
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg || "Failed to save auto-compress setting");
-    }
-  };
-
-  const setAppTheme = async (next: "dark" | "light") => {
-    if (next === theme) return;
-    applyTheme(next);
-    setTheme(next);
-    storeTheme(next);
-    await window.grokDesktop.setTheme(next);
-  };
-
-  const applyPrivacyMode = async (next: boolean) => {
-    if (next === privacyMode) return;
-    setPrivacyMode(next);
-    try {
-      const value = await window.grokDesktop.setPrivacyMode(next);
-      setPrivacyMode(Boolean(value));
-    } catch (e: unknown) {
-      setPrivacyMode(!next);
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg || "Failed to set privacy mode");
-    }
-  };
-
-  const applyCodingDataOptIn = async (next: boolean) => {
-    if (next === codingDataOptIn) return;
-    setCodingDataOptIn(next);
-    try {
-      const status = await window.grokDesktop.setCodingDataOptIn(next);
-      setCodingDataOptIn(status.optedIn !== false);
-      setCodingDataNote(status.note);
-      if (status.note) {
-        appendSystem(status.note);
-      } else {
-        appendSystem(
-          next
-            ? "Coding data: Opt in (stored in ~/.grok/auth.json). Restart the agent so the running process picks it up."
-            : "Coding data: Opt out. Restart the agent so the running process picks it up.",
-        );
-      }
-      setOfferAgentRestart(true);
-    } catch (e: unknown) {
-      setCodingDataOptIn(!next);
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg || "Failed to set coding data preference");
-    }
-  };
-
-  const applyAllowPrerelease = async (next: boolean) => {
-    if (next === allowPrerelease) return;
-    if (
-      next &&
-      !window.confirm(
-        "Preview updates can install untested prerelease builds.\n\nThe rest of the team stays on stable unless they turn this on too.\n\nAfter you turn this on, use Help → Check for updates.",
-      )
-    ) {
-      return;
-    }
-    setAllowPrerelease(next);
-    try {
-      const stored = await window.grokDesktop.setAllowPrerelease(next);
-      setAllowPrerelease(Boolean(stored));
-    } catch (e: unknown) {
-      setAllowPrerelease(!next);
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg || "Failed to set preview updates");
-    }
-  };
-
-  const applyDebugLogging = async (next: boolean) => {
-    if (next === debugLogging) return;
-    setDebugLogging(next);
-    try {
-      const res = await window.grokDesktop.setDebugLogging(next);
-      setDebugLogging(Boolean(res.debugLogging));
-      setDebugLogPath(res.debugLogPath || "");
-    } catch (e: unknown) {
-      setDebugLogging(!next);
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg || "Failed to set debug logging");
+      const live = await window.grokDesktop.getRuntimeState();
+      if (!active() || live.sessionId !== expected) return false;
+      if (live.goal?.status === "active" && mode !== "goal")
+        await window.grokDesktop.prompt("/goal pause");
+      if (!active()) return false;
+      const next = mode === "plan" ? "plan" : "default";
+      const result = await window.grokDesktop.setSessionMode(next);
+      if (!active()) return false;
+      if (!result.agentSynced)
+        throw Error(result.error || "Could not change mode");
+      setSessionMode(result.modeId || next);
+      const state = await window.grokDesktop.getRuntimeState();
+      if (mode === "plan" && state.goal?.status === "active")
+        throw Error("The goal is still active. Pause it before planning.");
+      if (!active() || state.sessionId !== expected) return false;
+      setComposerRuntime(state);
+      setError(null);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      composerModeLock.current = false;
     }
   };
 
@@ -997,21 +736,6 @@ export default function App() {
   );
 
   const restarting = openingLabel === "Restarting agent…";
-  const statusLabel = useMemo(() => {
-    if (conn === "connecting") {
-      return restarting ? "Restarting agent…" : "Starting agent…";
-    }
-    if (conn === "error") return "Error";
-    if (permissions.length > 0) {
-      return permissions.length === 1
-        ? "Waiting for approval…"
-        : `Waiting for approval… (${permissions.length})`;
-    }
-    if (conn === "busy") return "Working…";
-    if (conn === "online") return "Connected";
-    return "Idle";
-  }, [conn, permissions.length, restarting]);
-
   const platform =
     info?.platform ||
     (/Mac/i.test(navigator.userAgent || "")
@@ -1038,10 +762,64 @@ export default function App() {
   }, []);
 
   const columns = useColumnLayout();
-
-  const overlayOpen = Boolean(
-    planApproval || userQuestion || mcpElicit || folderTrust,
+  const historySidebar = (
+    <HistorySidebar
+      generalPath={info?.defaultWorkspace}
+      project={project}
+      sessionId={sessionId}
+      auth={auth}
+      disabled={isOpening || historyBusy || compacting}
+      inert={
+        shortcutsOpen ||
+        paletteOpen ||
+        settingsOpen
+      }
+      collapsed={columns.sidebarCollapsed}
+      onToggle={columns.toggleSidebar}
+      recentProjects={info?.recentProjects || []}
+      onOpen={openHistory}
+      onNew={() => {
+        clearHistory();
+        if (project) void openSession({ mode: "new" });
+        else if (info?.defaultWorkspace)
+          void openProject(info.defaultWorkspace, {
+            mode: "new",
+            allowSameCheckout: true,
+          });
+      }}
+      onHome={() => {
+        if (!info?.defaultWorkspace) return;
+        if (project !== info.defaultWorkspace && !confirmDiscardFiles()) return;
+        clearHistory();
+        if (project === info.defaultWorkspace) {
+          pinToBottom();
+          return;
+        }
+        void openProject(info.defaultWorkspace, { allowSameCheckout: true });
+      }}
+      onPick={() => void pickProject()}
+      onSettings={() => onOpenSettings()}
+      onLogout={() => void handleLogout()}
+      onRename={async (row, title) => {
+        await window.grokDesktop.renameSession({
+          cwd: row.cwd,
+          sessionId: row.id,
+          title,
+        });
+      }}
+      onDelete={async (row) => {
+        clearHistory();
+        if (row.cwd === project) await deleteSession({ sessionId: row.id });
+        else
+          await window.grokDesktop.deleteSession({
+            cwd: row.cwd,
+            sessionId: row.id,
+          });
+      }}
+    />
   );
+
+  const overlayOpen = false;
 
   const settingsDialog = (
     <SettingsDialog
@@ -1050,7 +828,9 @@ export default function App() {
         setSettingsOpen(false);
         setSettingsSection(null);
       }}
-      inert={overlayOpen}
+      inert={false}
+      hideThinking={hideThinking}
+      onHideThinking={applyHideThinking}
       theme={theme}
       privacyMode={privacyMode}
       codingDataOptIn={codingDataOptIn}
@@ -1119,6 +899,366 @@ export default function App() {
     />
   );
 
+  const openPanel = (tab: "files" | "changes" | "browser") => {
+    columns.showPanel(tab === "browser" ? 560 : undefined);
+    document.dispatchEvent(new CustomEvent("grok:panel-tab", { detail: tab }));
+  };
+  useEffect(
+    () =>
+      window.grokDesktop.on("preview:changed", (state) => {
+        if (
+          state.reveal &&
+          state.presentation === "docked" &&
+          state.ownerWindowId === info?.windowId
+        )
+          openPanel("browser");
+      }),
+    [info?.windowId, columns.panelCollapsed, confirmDiscardFiles],
+  );
+  useEffect(()=>window.grokDesktop.on('app:select-execution',({cwd,sessionId:target})=>{void openProject(cwd,{mode:'resume',sessionId:target,allowSameCheckout:true});}),[openProject]);
+  useEffect(()=>{
+    const open=async(event:Event)=>{const expected=sessionIdRef.current;const path=localFileReference((event as CustomEvent).detail,project);if(!path)return;
+      try{await window.grokDesktop.readFile(path);if(sessionIdRef.current!==expected)return;openPanel('files');requestAnimationFrame(()=>document.dispatchEvent(new CustomEvent('grok:open-validated-file',{detail:path})));}catch(error){setError(error instanceof Error?error.message:String(error));}};
+    document.addEventListener('grok:open-file-reference',open);return()=>document.removeEventListener('grok:open-file-reference',open);
+  },[project,columns.showPanel]);
+  const newChat = () => {
+    if (
+      !settingsOpen &&
+      !overlayOpen &&
+      !isOpening &&
+      !compactingRef.current
+    )
+      void openSession({ mode: "new" });
+  };
+  const paletteAction = (action: string) => {
+    if (action === "shortcuts") {
+      setShortcutsOpen(true);
+    } else if (action === "terminal") {
+      document.dispatchEvent(new CustomEvent("grok:toggle-terminal"));
+    } else if (action === "compact") {
+      void runCompress();
+    } else if (action === "usage") {
+      document.dispatchEvent(new CustomEvent("grok:open-usage"));
+    } else if (action === "focus-input") {
+      document.dispatchEvent(new CustomEvent("grok:focus-composer"));
+    } else if (action === "new") newChat();
+    else if (action === "general" && info?.defaultWorkspace)
+      void openProject(info.defaultWorkspace, { allowSameCheckout: true });
+    else if (action === "files" || action === "changes") openPanel(action);
+    else if (action === "settings") onOpenSettings();
+    else if (action === "preview") void handleLocalCommand("preview");
+    else if (action.startsWith("insert:"))
+      requestAnimationFrame(() =>
+        document.dispatchEvent(
+          new CustomEvent("grok:reuse-prompt", {
+            detail: "/" + action.slice(7) + " ",
+          }),
+        ),
+      );
+  };
+  useEffect(() => {
+    const open = () => {
+      setSettingsOpen(false);
+      setShortcutsOpen(true);
+    };
+    document.addEventListener("grok:show-shortcuts", open);
+    const key = (e: KeyboardEvent) => {
+      if (
+        !(e.ctrlKey || e.metaKey) ||
+        settingsOpen ||
+        overlayOpen ||
+        shortcutsOpen ||
+        paletteOpen
+      )
+        return;
+      if (e.key === "/" || e.code === "Slash") {
+        e.preventDefault();
+        setPaletteOpen(false);
+        setShortcutsOpen(true);
+        return;
+      }
+      if (e.key.toLowerCase() === "n" && !e.shiftKey) {
+        e.preventDefault();
+        newChat();
+      }
+      if (e.shiftKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("keydown", key);
+      document.removeEventListener("grok:show-shortcuts", open);
+    };
+  }, [
+    settingsOpen,
+    overlayOpen,
+    shortcutsOpen,
+    paletteOpen,
+    conn,
+    project,
+    sessionId,
+  ]);
+  useEffect(() => {
+    setConnectionSlow(false);
+    if (conn !== "connecting") return;
+    const timer = setTimeout(() => setConnectionSlow(true), 30000);
+    return () => clearTimeout(timer);
+  }, [conn]);
+  const connectionRecovery = (connectionSlow || conn === "error") && (
+    <div className="connection-recovery" role="status">
+      {connectionSlow
+        ? "Connecting is taking longer than expected."
+        : "Grok is unavailable. Your draft is safe."}
+      <button className="btn" onClick={() => void recoverConnection(false)}>
+        Retry
+      </button>
+      <button className="btn" onClick={() => void recoverConnection(true)}>
+        Restart engine
+      </button>
+    </div>
+  );
+  useEffect(()=>window.grokDesktop.on('agent:ready',()=>{const expected=sessionIdRef.current;void window.grokDesktop.getRuntimeState().then(next=>{if(next.sessionId!==expected||sessionIdRef.current!==expected)return;setComposerRuntime(next);setModelId(next.modelId);setModelName(next.modelName);setAvailableModels(next.availableModels);}).catch(()=>{});}),[]);
+  const stopTurn = () => {
+    changeQueuePaused(true);
+    document.dispatchEvent(new CustomEvent("grok:stop-requested"));
+    setItems((prev) => finalizeOpenTools(prev, "cancelled"));
+    void window.grokDesktop.cancel();
+  };
+  const handleGoalAction = async (action: "pause" | "resume" | "clear") => {
+    const expected = sessionIdRef.current;
+    if (
+      compactingRef.current ||
+      !expected ||
+      !["online", "busy"].includes(conn)
+    )
+      return false;
+    if (action !== "resume") changeQueuePaused(true);
+    let finish: (value: boolean) => void = () => {};
+    let off = () => {};
+    let timer: ReturnType<typeof setTimeout>;
+    const confirmation = new Promise<boolean>((resolve) => {
+      finish = (value) => {
+        clearTimeout(timer);
+        off();
+        resolve(value);
+      };
+      off = window.grokDesktop.on("agent:session-update", (params) => {
+        if (sessionIdRef.current !== expected) return finish(false);
+        if (params.sessionId && params.sessionId !== expected) return;
+        const u = params.update;
+        if (u?.sessionUpdate !== "goal_updated") return;
+        if (
+          action === "clear"
+            ? u.status === "cleared"
+            : action === "resume"
+              ? u.status === "active"
+              : u.status !== "active"
+        )
+          finish(true);
+      });
+      timer = setTimeout(() => finish(false), 30000);
+    });
+    try {
+      if (conn === "busy")
+        document.dispatchEvent(new CustomEvent("grok:stop-requested"));
+      const accepted = await submitFromComposer({
+        text: "/goal " + action,
+        images: [],
+        mode: conn === "busy" ? "now" : "auto",
+      });
+      if (!accepted) finish(false);
+      return await confirmation;
+    } catch (e) {
+      finish(false);
+      throw e;
+    }
+  };
+  const activityElement = (
+    <ChatActivity
+      key={sessionId || "pending"}
+      sessionId={sessionId}
+      busy={conn === "busy"}
+      compacting={compacting}
+      connection={conn}
+      items={items}
+      goal={composerRuntime?.goal || null}
+      outcome={turnOutcome}
+      tasks={backgroundTasks}
+      queue={
+        <PromptQueue
+          items={promptQueue}
+          paused={queuePaused}
+          busy={conn === "busy"}
+          available={!compacting && (conn === "online" || conn === "busy")}
+          onPaused={changeQueuePaused}
+          onEdit={editQueued}
+          onMove={moveQueued}
+          onRemove={removeQueued}
+          onSendNow={sendQueuedNow}
+        />
+      }
+      permissionCount={permissions.length}
+      waitingFor={
+        planApproval
+          ? "plan"
+          : userQuestion
+            ? "answer"
+            : folderTrust
+              ? "trust"
+              : mcpElicit
+                ? "connector"
+                : null
+      }
+      onReview={() => openPanel("changes")}
+      onRestart={() => void recoverConnection(true)}
+      onGoalAction={handleGoalAction}
+    />
+  );
+  const paletteElement = (
+    <>
+      {paletteOpen && (
+        <CommandPalette
+          commands={allCommands}
+          onClose={() => setPaletteOpen(false)}
+          onAction={paletteAction}
+        />
+      )}
+      {shortcutsOpen && (
+        <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />
+      )}
+    </>
+  );
+  const nativeGates=usePendingGates(sessionId);
+  const planRequests=nativeGates?nativeGates.planApprovals.map(row=>({reqId:row.reqId,planContent:row.params?.planContent||'',planFilePath:row.params?.planFilePath})):planApproval?[planApproval]:[];
+  const questionRequests=nativeGates?nativeGates.userQuestions.map(row=>({reqId:row.reqId,questions:row.params?.questions||[]} as AskUserRequest)):userQuestion?[userQuestion]:[];
+  const trustRequests=nativeGates?nativeGates.folderTrust.map(row=>({reqId:row.reqId,...row.params})):folderTrust?[folderTrust]:[];
+  const elicitRequests=nativeGates?nativeGates.mcpElicits.map(row=>({reqId:row.reqId,...row.params,serverName:row.params?.serverName||'',message:row.params?.message||'',mode:row.params?.mode||'form'})):mcpElicit?[mcpElicit]:[];
+  const interactionRequests = [
+    ...planRequests.map(request=>({id:request.reqId,label:'Plan review',content:<PlanApprovalDialog inline request={request} onRespond={(id,decision)=>void onPlanApproval(id,decision)}/>})),
+    ...questionRequests.map(request=>({id:request.reqId,label:'Your answer is needed',content:<AskUserDialog inline request={request} onRespond={(id,decision)=>void onUserQuestion(id,decision)}/>})),
+    ...trustRequests.map(request=>({id:request.reqId,label:'Trust this folder',content:<FolderTrustDialog inline request={request} onRespond={(id,decision)=>void onFolderTrust(id,decision)}/>})),
+    ...elicitRequests.map(request=>({id:request.reqId,label:'Connector input',content:<McpElicitDialog inline request={request} onRespond={(id,decision)=>void onMcpElicit(id,decision)}/>})),
+    ...permissions.map(permission=>({id:permission.reqId,label:'Approval needed',content:<ApprovalsDock permissions={[permission]} onPermission={(id,option)=>void onPermission(id,option)} onAllowAll={()=>void onAllowAllPermissions()} onAllowWritesThisSession={()=>void onAllowWritesThisSession()}/>})),
+  ];
+  const attentionKey=interactionRequests.map(request=>request.id).join('|');
+  useEffect(()=>{if(attentionKey&&innerWidth<1200&&!columns.panelCollapsed)columns.togglePanel();},[attentionKey]);
+  const composerElement = (
+    <Composer
+      key={`composer:${project || info?.defaultWorkspace}:${sessionId || "pending"}`}
+      draftKey={`${project || info?.defaultWorkspace || "general"}\0${sessionId || "pending"}`}
+      conn={conn}
+      projectOpen={Boolean(project)}
+      commands={allCommands}
+      promptQueue={promptQueue}
+      onSubmit={submitFromComposer}
+      onLocalCommand={handleLocalCommand}
+      onError={onComposerError}
+      sessionMode={sessionMode}
+      onModeChange={changeComposerMode}
+      onStop={stopTurn}
+      activity={<>{activityElement}<InteractionDock key={sessionId} requests={interactionRequests} bulkAction={permissions.length>1?{label:"Allow all once",run:()=>void onAllowAllPermissions()}:undefined}/></>}
+      compacting={compacting}
+      settings={{
+        modelId,
+        modelName,
+        availableModels,
+        reasoningEffort,
+        permissionMode,
+        allowOutsideProject,
+        sandboxTerminal,
+        runtime: composerRuntime,
+        liveContextTokens: sessionUsage.lastContextTokens,
+        onOpenModel:async()=>{const expected=sessionIdRef.current;const next=await window.grokDesktop.executionConnect?.();if(next&&expected===sessionIdRef.current){setComposerRuntime(next);setModelId(next.modelId);setModelName(next.modelName);setAvailableModels(next.availableModels);}},
+        onModel: async (id) => {
+          await applyModel(id);
+          await refreshComposerRuntime();
+        },
+        onReasoningEffort: async (effort) => {
+          await applyReasoningEffort(effort);
+          await refreshComposerRuntime();
+        },
+        onPermissionMode: applyPermissionMode,
+        onToggleAllowOutside: toggleAllowOutside,
+        onSandboxTerminal: async (value) => {
+          try {
+            await applySandboxTerminal(value);
+          } catch (e) {
+            onComposerError(e instanceof Error ? e.message : String(e));
+          }
+        },
+        onContextWindow: async (size) => {
+          try {
+            const next = await window.grokDesktop.setContextWindow(size);
+            if (next.sessionId !== sessionIdRef.current) return;
+            setComposerRuntime(next);
+            setError(null);
+          } catch (e) {
+            onComposerError(e instanceof Error ? e.message : String(e));
+          }
+        },
+        onCompress: () => void runCompress(),
+        onOpenSettings: () => onOpenSettings(),
+      }}
+    />
+  );
+  const failedDeliveryCard = failedDelivery && (
+    <div className="delivery-recovery" role="alert">
+      Message failed. Your text can be restored.
+      <button
+        className="btn"
+        onClick={() => {
+          document.dispatchEvent(
+            new CustomEvent("grok:reuse-prompt", {
+              detail: failedDelivery.timelineText || failedDelivery.text,
+            }),
+          );
+          clearFailedDelivery();
+        }}
+      >
+        Restore text
+      </button>
+      <button className="btn" onClick={clearFailedDelivery}>
+        Dismiss
+      </button>
+    </div>
+  );
+  if (!project && signedIn) {
+    return (
+      <PrivacyProvider privacyMode={privacyMode} home={homeDir}>
+        <div
+          className={`app custom-home ${platformClass}${columns.sidebarCollapsed ? " app--sidebar-collapsed" : ""}`}
+          style={{
+            ...columns.cssVars,
+            gridTemplateColumns: "var(--sidebar-width) minmax(0,1fr)",
+          }}
+        >
+          {historySidebar}
+          <main className="home-main" inert={settingsOpen || undefined}>
+            <div className="home-greeting">
+              <BrandMarkHome />
+              <h1>What can I help with?</h1>
+              <p>
+                {isOpening
+                  ? "Connecting to Grok…"
+                  : "Your everyday chat, files and PC help."}
+              </p>
+              {composerElement}
+              {connectionRecovery}
+              {error && <div className="error-banner">{redact(error)}</div>}
+            </div>
+            <div className="home-note">
+              Grok Desktop Community · Your local workspace
+            </div>
+          </main>
+        </div>
+        {settingsDialog}
+        {worktreeOverlay}
+        {paletteElement}
+      </PrivacyProvider>
+    );
+  }
   if (!project) {
     return (
       <PrivacyProvider privacyMode={privacyMode} home={homeDir}>
@@ -1175,36 +1315,7 @@ export default function App() {
         style={columns.cssVars}
       >
         <div className="app-col app-col--sidebar">
-          <AppSidebar
-            infoVersion={info?.version}
-            grokBinary={info?.grokBinary}
-            auth={auth}
-            backbone={backbone}
-            project={project}
-            sessionId={sessionId}
-            sessions={sessions}
-            recentProjects={info?.recentProjects || []}
-            conn={conn}
-            isOpening={isOpening}
-            authBusy={authBusy}
-            collapsed={columns.sidebarCollapsed}
-            onToggleCollapsed={columns.toggleSidebar}
-            onPickProject={() => void pickProject()}
-            onNewWorktree={() => {
-              if (project) void createWorktreeInNewWindow(project);
-            }}
-            onOpenProject={(cwd) => {
-              if (!confirmDiscardFiles()) return;
-              void openProject(cwd, { mode: "continue" });
-            }}
-            openCheckouts={openCheckouts}
-            onOpenSession={(opts) => void openSession(opts)}
-            onRenameSession={(opts) => renameSession(opts)}
-            onDeleteSession={(opts) => deleteSession(opts)}
-            onLogout={() => void handleLogout()}
-            onOpenSettingsSection={onOpenSettings}
-            inert={settingsOpen}
-          />
+          {historySidebar}
           <ColumnResizeHandle
             side="sidebar"
             collapsed={columns.sidebarCollapsed}
@@ -1218,44 +1329,24 @@ export default function App() {
           />
         </div>
 
-        <main className="main" inert={settingsOpen || undefined}>
+        <main
+          className={`main ${!items.some((item) => item.kind === "user" || item.kind === "assistant") ? "main--empty" : ""}`}
+          inert={settingsOpen || undefined}
+        >
           <ChatTopbar
             project={project}
-            conn={conn}
-            statusLabel={statusLabel}
-            isOpening={isOpening}
-            modelId={modelId}
-            modelName={modelName}
-            pendingModelId={pendingModelId}
-            modelSelectEpoch={modelSelectEpoch}
-            availableModels={availableModels}
-            permissionMode={permissionMode}
-            reasoningEffort={reasoningEffort}
-            sessionMode={sessionMode}
-            allowOutsideProject={allowOutsideProject}
-            sandboxTerminal={sandboxTerminal}
-            privacyMode={privacyMode}
-            backgroundTasks={backgroundTasks}
-            onModel={(id) => void applyModel(id)}
-            onPermissionMode={(m) => void applyPermissionMode(m)}
-            onReasoningEffort={(e) => void applyReasoningEffort(e)}
-            onOpenSettings={onOpenSettings}
-            onOpenPreview={() => void handleLocalCommand("preview")}
-            onCompress={runCompress}
-            compacting={compacting}
-            hideThinking={hideThinking}
-            onHideThinking={(next) => {
-              setHideThinking(next);
-              storeHideThinking(next);
-            }}
-            allowWritesThisSession={allowWritesThisSession}
-            onRevokeWritesThisSession={() =>
-              void onRevokeWritesThisSession()
+            chatTitle={sessions.find((row) => row.id === sessionId)?.title}
+            workspaceLabel={
+              project === info?.defaultWorkspace ? "General" : undefined
             }
-            onStop={() => {
-              setItems((prev) => finalizeOpenTools(prev, "cancelled"));
-              void window.grokDesktop.cancel();
-            }}
+            conn={conn}
+            panelOpen={!columns.panelCollapsed}
+            onOpenFiles={() => openPanel("files")}
+            onOpenChanges={() => openPanel("changes")}
+            onOpenPreview={() => void handleLocalCommand("preview")}
+            onOpenSettings={() => onOpenSettings()}
+            hideThinking={hideThinking}
+            onHideThinking={applyHideThinking}
           />
 
           {isOpening && (
@@ -1295,41 +1386,74 @@ export default function App() {
             </div>
           )}
 
+          {(items.length > 0 || historyPage) && (
+            <div className="history-navigation">
+              <button
+                className="btn btn-sm"
+                disabled={historyBusy || historyPage?.start === 0}
+                onClick={() =>
+                  void pageHistory(
+                    historyPage ? Math.max(0, historyPage.start - 140) : 0,
+                  )
+                }
+              >
+                {historyPage ? "Previous messages" : "Load earlier messages"}
+              </button>
+              {historyPage && (
+                <>
+                  <span>
+                    Messages {historyPage.start + 1}–{historyPage.end} of{" "}
+                    {historyPage.total}
+                  </span>
+                  <button
+                    className="btn btn-sm"
+                    disabled={
+                      historyBusy || historyPage.end >= historyPage.total
+                    }
+                    onClick={() => void pageHistory(historyPage.end)}
+                  >
+                    Next messages
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => {
+                      clearHistory();
+                      requestAnimationFrame(pinToBottom);
+                    }}
+                  >
+                    Jump to latest
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+          <nav className="conversation-tabs" aria-label="Conversation view"><button aria-pressed={conversationView==='chat'} onClick={()=>setConversationView('chat')}>Chat</button><button aria-pressed={conversationView==='activity'} onClick={()=>setConversationView('activity')}>Activity</button></nav>
+          {conversationView==='activity'?<ActivityView items={historyPage?.items||items} loading={historyBusy} hasEarlier={historyPage?.start!==0} onEarlier={()=>void pageHistory(historyPage?Math.max(0,historyPage.start-140):0)}/>:<>
           <MessageList
-            key={`messages:${sessionId || "no-session"}`}
-            items={items}
+            key={`messages:${sessionId || "no-session"}:${historyPage?.start ?? "live"}:${historyPage?.focusOrdinal ?? ""}`}
+            items={historyPage?.items || items}
             bottomRef={bottomRef}
             scrollerRef={timelineRef}
             knownCommands={allCommands}
             planMode={sessionMode === "plan"}
-            streaming={conn === "busy"}
+            streaming={!historyPage && conn === "busy"}
             hideThinking={hideThinking}
-            pendingPermissions={permissions}
+            pendingPermissions={[]}
             onPermission={onPermission}
             onAllowAllPermissions={() => void onAllowAllPermissions()}
           />
 
-          <ApprovalsDock
-            permissions={permissions}
-            onPermission={(reqId, optionId) =>
-              void onPermission(reqId, optionId)
-            }
-            onAllowAll={() => void onAllowAllPermissions()}
-            onAllowWritesThisSession={() => void onAllowWritesThisSession()}
-          />
-
-          <Composer
-            key={`composer:${sessionId || "no-session"}`}
-            conn={conn}
-            projectOpen={Boolean(project)}
-            commands={allCommands}
-            promptQueue={promptQueue}
-            onSubmit={submitFromComposer}
-            onLocalCommand={handleLocalCommand}
-            onSendQueuedNow={sendQueuedNow}
-            onRemoveQueued={removeQueued}
-            onError={onComposerError}
-          />
+          </>}
+          {!atLatest && !historyPage && (
+            <div className="jump-latest-wrap">
+              <button className="btn" onClick={pinToBottom}>
+                Jump to latest ↓
+              </button>
+            </div>
+          )}
+          {connectionRecovery}
+          {failedDeliveryCard}
+          {composerElement}
 
           <StatusBar
             privacyMode={privacyMode}
@@ -1337,6 +1461,11 @@ export default function App() {
             gitBranch={gitBranch}
             gitDetached={gitDetached}
             sessionUsage={sessionUsage}
+          />
+          <TerminalDock
+            sessionId={sessionId}
+            project={project}
+            inert={settingsOpen || overlayOpen || shortcutsOpen || paletteOpen}
           />
         </main>
 
@@ -1353,6 +1482,8 @@ export default function App() {
             onDoubleClick={columns.resetPanel}
           />
           <SidePanel
+            windowId={info?.windowId}
+            sessionId={sessionId}
             project={project}
             backgroundTasks={backgroundTasks}
             sessionMode={sessionMode}
@@ -1364,25 +1495,23 @@ export default function App() {
         </div>
       </div>
 
-        {worktreeOverlay}
-        {settingsDialog}
+      {worktreeOverlay}
+      {settingsDialog}
+      {paletteElement}
+      <UsageHost
+        project={project}
+        sessionId={sessionId}
+        busy={conn === "busy"}
+      />
 
-        <PlanApprovalDialog
-          request={planApproval}
-          onRespond={(reqId, decision) => void onPlanApproval(reqId, decision)}
-        />
-        <AskUserDialog
-          request={userQuestion}
-          onRespond={(reqId, decision) => void onUserQuestion(reqId, decision)}
-        />
-        <FolderTrustDialog
-          request={folderTrust}
-          onRespond={(reqId, decision) => void onFolderTrust(reqId, decision)}
-        />
-        <McpElicitDialog
-          request={mcpElicit}
-          onRespond={(reqId, decision) => void onMcpElicit(reqId, decision)}
-        />
     </PrivacyProvider>
+  );
+}
+
+function BrandMarkHome() {
+  return (
+    <div className="home-orbit" aria-hidden="true">
+      ✦
+    </div>
   );
 }

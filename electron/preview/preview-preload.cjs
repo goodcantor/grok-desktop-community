@@ -1,4 +1,8 @@
 const { contextBridge, ipcRenderer } = require("electron");
+window.addEventListener('keydown',event=>{
+  if(!(event.ctrlKey||event.metaKey)||event.altKey||!['+','=','-','0'].includes(event.key))return;
+  event.preventDefault();ipcRenderer.send('preview:step-zoom',event.key==='0'?'reset':event.key==='-'?'out':'in');
+},{capture:true});
 
 contextBridge.exposeInMainWorld("previewChrome", {
   ready: (payload) => ipcRenderer.invoke("preview:chrome-ready", payload),
@@ -6,6 +10,7 @@ contextBridge.exposeInMainWorld("previewChrome", {
   back: () => ipcRenderer.invoke("preview:chrome-back"),
   forward: () => ipcRenderer.invoke("preview:chrome-forward"),
   reload: () => ipcRenderer.invoke("preview:chrome-reload"),
+  zoom: value => ipcRenderer.invoke('preview:chrome-zoom',value),
   setViewport: (id) => ipcRenderer.invoke("preview:chrome-viewport", id),
   snapshot: () => ipcRenderer.invoke("preview:chrome-snapshot"),
   screenshot: () => ipcRenderer.invoke("preview:chrome-screenshot"),

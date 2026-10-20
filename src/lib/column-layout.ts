@@ -2,16 +2,16 @@
 
 export const COLUMN_LAYOUT_KEY = "grok-desktop-column-layout";
 
-export const SIDEBAR_WIDTH_DEFAULT = 280;
-export const SIDEBAR_WIDTH_MIN = 200;
+export const SIDEBAR_WIDTH_DEFAULT = 316;
+export const SIDEBAR_WIDTH_MIN = 256;
 export const SIDEBAR_WIDTH_MAX = 720;
 
-export const PANEL_WIDTH_DEFAULT = 340;
+export const PANEL_WIDTH_DEFAULT = 480;
 export const PANEL_WIDTH_MIN = 180;
 export const PANEL_WIDTH_MAX = 960;
 
 /** Rail width when a column is collapsed (Windows / Linux). */
-export const COLUMN_COLLAPSED_WIDTH = 48;
+export const COLUMN_COLLAPSED_WIDTH = 56;
 /** macOS hiddenInset traffic lights need a wider left rail. */
 export const COLUMN_COLLAPSED_WIDTH_DARWIN = 72;
 
@@ -47,7 +47,7 @@ export function defaultColumnLayout(): ColumnLayoutState {
     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
     panelWidth: PANEL_WIDTH_DEFAULT,
     sidebarCollapsed: false,
-    panelCollapsed: false,
+    panelCollapsed: true,
   };
 }
 

@@ -16,6 +16,7 @@ const MAX_LINE = 32 * 1024;
 const nodeRequire = createRequire(import.meta.url);
 
 function electronApp() {
+  if(!process.versions.electron)return null;
   try {
     // createRequire works in ESM main; bare `require` is undefined and was
     // silently skipping crashReporter + app quit/GPU handlers.

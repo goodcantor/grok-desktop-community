@@ -128,7 +128,7 @@ export function applyBackgroundUpdate(tasks, params) {
 
   if (kind === "task_completed") {
     const snap = update.task_snapshot || update.taskSnapshot || {};
-    const id = String(snap.task_id || snap.taskId || update.task_id || "");
+    const id = String(snap.task_id || snap.taskId || update.task_id || update.taskId || "");
     if (!id) return tasks;
     const toolCallId =
       String(

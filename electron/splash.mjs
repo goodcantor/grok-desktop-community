@@ -22,7 +22,7 @@ export function bootTheme(theme) {
 }
 
 export function bootBackground(theme) {
-  return bootTheme(theme) === "light" ? "#f3f3f7" : "#0c0c0f";
+  return bootTheme(theme) === "light" ? "#ffffff" : "#171819";
 }
 
 export function hasSplash() {

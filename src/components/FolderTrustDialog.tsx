@@ -15,7 +15,9 @@ export type FolderTrustRequest = {
 export function FolderTrustDialog({
   request,
   onRespond,
+  inline = false,
 }: {
+  inline?: boolean;
   request: FolderTrustRequest | null;
   onRespond: (
     reqId: string,
@@ -26,10 +28,10 @@ export function FolderTrustDialog({
   const { redact } = usePrivacy();
 
   useEffect(() => {
-    if (!request) return;
+    if (!request || inline) return;
     trustRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (inline || e.key !== "Escape") return;
       e.preventDefault();
       onRespond(request.reqId, { outcome: "reject" });
     };
@@ -47,14 +49,14 @@ export function FolderTrustDialog({
 
   return (
     <div
-      className="modal-backdrop"
+      className={inline ? "inline-gate" : "modal-backdrop"}
       role="presentation"
-      data-modal-layer="overlay"
+      data-modal-layer={inline ? undefined : "overlay"}
     >
       <div
         className="modal-dialog worktree-dialog"
         role="dialog"
-        aria-modal="true"
+        aria-modal={inline ? undefined : true}
         aria-labelledby="folder-trust-title"
       >
         <div className="modal-header">

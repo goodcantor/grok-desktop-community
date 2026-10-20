@@ -1,3 +1,5 @@
+import {useEffect,useState} from 'react';
+
 export function DiagnosticsPage({
   debugLogging,
   debugLogPath,
@@ -13,8 +15,11 @@ export function DiagnosticsPage({
   onOpenDebugLog: () => void;
   onOpenCrashLog: () => void;
 }) {
+  const [report,setReport]=useState<Record<string,unknown>|null>(null),[note,setNote]=useState('');
+  useEffect(()=>{let active=true;void window.grokDesktop.diagnostics().then(report=>{if(active)setReport(report);}).catch(error=>setNote(String(error)));return()=>{active=false;};},[]);
   return (
     <section className="settings-section">
+      <div className="settings-row"><div className="settings-row-text"><span className="settings-label">Connection report</span><span className="settings-desc">Versions, engine state and the last connection event. Conversation text, authentication and tool logs are excluded.</span>{report&&<pre className="diagnostic-report">{JSON.stringify(report,null,2)}</pre>}{note&&<span role="status">{note}</span>}</div><button className="btn" disabled={!report} onClick={async()=>{try{await navigator.clipboard.writeText(JSON.stringify(report,null,2));setNote('Report copied');}catch{setNote('Could not copy the report');}}}>Copy report</button></div>
       <label className="settings-row">
         <div className="settings-row-text">
           <span className="settings-label">Debug logging</span>

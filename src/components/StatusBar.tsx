@@ -1,4 +1,5 @@
 import { memo } from "react";
+import {ZoomControl} from './ZoomControl';
 import type { SessionUsage } from "../lib/usage";
 import { formatUsageBar, formatUsageTooltip } from "../lib/usage";
 
@@ -47,6 +48,7 @@ export const StatusBar = memo(function StatusBar({
         )}
       </div>
       <div className="status-bar-right">
+        <ZoomControl/>
         {gitBranch ? (
           <span
             className={`status-bar-git ${gitDetached ? "detached" : ""}`}
@@ -64,14 +66,7 @@ export const StatusBar = memo(function StatusBar({
               <span className="status-bar-git-detached">detached</span>
             ) : null}
           </span>
-        ) : (
-          <span className="status-bar-git muted" title="Not a git repository">
-            <span className="status-bar-git-icon" aria-hidden>
-              ⎇
-            </span>
-            <span className="status-bar-git-name">no git</span>
-          </span>
-        )}
+        ) : null}
       </div>
     </footer>
   );

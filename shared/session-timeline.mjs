@@ -242,16 +242,13 @@ export function appendUserMessage(items, payload = {}) {
 export function claimQueuedUserMessage(items, queueId, extra = {}) {
   const id = String(queueId || "").trim();
   if (!id || !Array.isArray(items)) return items;
-  let found = false;
-  const next = items.map((item) => {
-    if (item?.kind !== "user" || item.queueId !== id) return item;
-    found = true;
-    const row = { ...item, queued: false, optimistic: true };
-    const ij = String(extra.interjectionId || "").trim();
-    if (ij) row.interjectionId = ij;
-    return row;
-  });
-  return found ? next : items;
+  const item=items.find(item=>item?.kind==='user'&&item.queueId===id);
+  if(!item)return items;
+  const row={...item,queued:false,optimistic:true,at:Date.now()};
+  const ij=String(extra.interjectionId||'').trim();if(ij)row.interjectionId=ij;
+  // A queued message is sent now, after the previous response, even if it
+  // was composed while that response was still streaming.
+  return [...items.filter(item=>!(item?.kind==='user'&&item.queueId===id)),row];
 }
 
 /**
@@ -343,7 +340,7 @@ export function applySessionInterjection(items, payload) {
  * @param {any} params - full session/update params or a bare update object
  * @returns {any[]}
  */
-export function applySessionUpdate(items, params) {
+function reduceSessionUpdate(items, params) {
   const update = params?.update ?? params;
   if (!update) return items;
   const kind = update.sessionUpdate || update.session_update;
@@ -486,6 +483,7 @@ export function applySessionUpdate(items, params) {
         next[idx] = {
           ...prev,
           status: resolveToolUpdateStatus(update, prev.status),
+          ...(isTerminalToolStatus(resolveToolUpdateStatus(update,prev.status))&&(params?._meta?.agentTimestampMs||params?.timestamp)?{endedAt:at}:{}),
           content: update.content ?? prev.content,
           title: update.title || prev.title,
           raw: update.rawInput ?? update.raw_input ?? prev.raw,
@@ -509,8 +507,9 @@ export function applySessionUpdate(items, params) {
     }
     case "plan": {
       // Replace the latest plan card when the agent updates todos (avoid stacking)
-      const entries = update.entries || [];
+      const entries = Array.isArray(update.entries) ? update.entries : [];
       for (let i = next.length - 1; i >= 0; i--) {
+        if (next[i]?.kind === "user" && !next[i].queued && !next[i].interjectionId) break;
         if (next[i]?.kind === "plan") {
           next[i] = {
             ...next[i],
@@ -679,4 +678,19 @@ export function formatOptionLabel(optionId, name) {
     cancelled: "Cancel",
   };
   return map[optionId] || optionId;
+}
+
+/** Preserve observed tool provenance for Activity/results without inferring successful mutations. */
+export function applySessionUpdate(items,params) {
+  const result=reduceSessionUpdate(items,params),update=params?.update??params;
+  if(!['tool_call','tool_call_update'].includes(update?.sessionUpdate||update?.session_update))return result;
+  const id=String(update.toolCallId??update.tool_call_id??update.id??'');
+  const index=result.findIndex(item=>item.kind==='tool'&&String(item.toolCallId)===id);
+  if(index<0)return result;
+  const item=result[index],previous=items.find(row=>row.kind==='tool'&&String(row.toolCallId)===id);
+  const meta=update._meta?.['x.ai/tool'];
+  result[index]={...item,toolKind:update.kind||meta?.kind||previous?.toolKind,locations:update.locations??previous?.locations,
+    rawOutput:update.rawOutput??update.raw_output??previous?.rawOutput,
+    completionObserved:update.status==='completed'||(previous?.completionObserved&&update.status!=='failed')||false};
+  return result;
 }

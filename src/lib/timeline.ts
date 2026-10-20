@@ -1,5 +1,5 @@
 // @ts-nocheck — imports shared pure ESM without package types
-import type { TimelineImage, TimelineItem } from "../vite-env";
+import type { TimelineImage, TimelineItem } from "../types/desktop";
 import {
   displayUserMessageText as displayUserShared,
   appendUserMessage as appendShared,

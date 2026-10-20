@@ -11,6 +11,9 @@ export type DesktopCommandHandlers = {
   compact?: (hint?: string) => void | Promise<void>;
   /** TUI `/plan` — set session mode, then optional first prompt. */
   enterPlanMode?: (args: string) => void | Promise<void>;
+  model?: (args: string) => void | Promise<void>;
+  effort?: (args: string) => void | Promise<void>;
+  chat?: () => void | Promise<void>;
 };
 
 /** Resolve next mode when toggling Always-approve. */
@@ -30,6 +33,14 @@ export async function runDesktopCommand(
   args = "",
 ): Promise<boolean> {
   const key = name.toLowerCase().replace(/^\//, "");
+  if (key === "chat") {
+    await handlers.chat?.();
+    return true;
+  }
+  if (key === "model" || key === "effort") {
+    await handlers[key]?.(args);
+    return true;
+  }
   if (key === "new" || key === "clear") {
     handlers.newChat();
     return true;

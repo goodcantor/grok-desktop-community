@@ -1,3 +1,6 @@
+import { technicalGroups, producedFiles, localFileReference } from "../../shared/conversation-view.mjs";
+import { FileText } from "lucide-react";
+import { ImageViewer } from "./ImageViewer";
 import {
   Fragment,
   memo,
@@ -7,6 +10,8 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import {PlanSteps} from './PlanSteps';
+import {normalizePlanEntries} from '../../shared/activity-status.mjs';
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -20,7 +25,8 @@ import {
   formatFullTimestamp,
   sameCalendarDay,
 } from "../lib/time";
-import type { PermissionRequest, TimelineItem } from "../vite-env";
+import type { PermissionRequest, TimelineItem } from "../types/desktop";
+import {extractToolCallId} from "../../shared/permission-options.mjs";
 import { displayUserMessageText, formatOptionLabel } from "../lib/timeline";
 import {
   classifyOptionId,
@@ -58,7 +64,7 @@ function MarkdownLink({
         e.preventDefault();
         if (href && /^https?:\/\//i.test(href)) {
           void window.grokDesktop.openExternal(href);
-        }
+        } else if(href) document.dispatchEvent(new CustomEvent('grok:open-file-reference',{detail:href}));
       }}
     >
       {children}
@@ -203,15 +209,6 @@ function sourceBadgeLabel(cmd?: SlashCommand): string {
   return "command";
 }
 
-function planEntryLabel(e: unknown): string {
-  if (typeof e === "string") return e;
-  if (e && typeof e === "object") {
-    const row = e as { content?: string; status?: string };
-    const base = row.content || JSON.stringify(e);
-    return row.status ? `${base} — ${row.status}` : base;
-  }
-  return JSON.stringify(e);
-}
 
 /**
  * Thinking stays a one-line trace while Hide thinking is on. Full cards
@@ -309,6 +306,7 @@ const TimelineRow = memo(function TimelineRow({
   hideThinking?: boolean;
 }) {
   const { redact } = usePrivacy();
+  const [image,setImage]=useState<string|null>(null);
   const day =
     showDay && typeof item.at === "number" ? (
       <DayDivider at={item.at} />
@@ -344,11 +342,11 @@ const TimelineRow = memo(function TimelineRow({
             }
             at={item.at}
             actions={
-              <CopyReplyButton
+              <><button type="button" className="btn ghost btn-sm msg-reuse" onClick={()=>document.dispatchEvent(new CustomEvent('grok:reuse-prompt',{detail:text}))}>Use as new prompt</button><CopyReplyButton
                 markdown={displayText}
                 ariaLabel="Copy prompt"
                 plain
-              />
+              /></>
             }
           />
           {item.images && item.images.length > 0 && (
@@ -359,13 +357,14 @@ const TimelineRow = memo(function TimelineRow({
                   type="button"
                   className="msg-image"
                   title="Image attachment"
-                  onClick={(e) => e.preventDefault()}
+                  onClick={() => setImage(img.previewUrl)}
                 >
                   <img src={img.previewUrl} alt={`Attachment ${j + 1}`} />
                 </button>
               ))}
             </div>
           )}
+          {image&&<ImageViewer src={image} alt="Image attachment" onClose={()=>setImage(null)}/>}
           {displayText ? (
             inv ? (
               <div className="body body-command">
@@ -416,6 +415,7 @@ const TimelineRow = memo(function TimelineRow({
             <ReactMarkdown
               remarkPlugins={REMARK_PLUGINS}
               components={MD_COMPONENTS}
+              urlTransform={(url,key)=>key==='href'&&localFileReference(url,'C:/')?url:/^https?:/i.test(url)?url:''}
             >
               {display}
             </ReactMarkdown>
@@ -445,9 +445,8 @@ const TimelineRow = memo(function TimelineRow({
     return (
       <Fragment>
         {day}
-        <article
-          className={item.askUser ? "msg tool ask-user-question" : "msg tool"}
-        >
+        <details className={item.askUser ? "msg tool ask-user-question" : "msg tool"}>
+          <summary>{card.heading || card.action || "Tool activity"}<span className={`tool-status ${item.status}`}>{item.status}</span>{item.endedAt&&item.endedAt>=item.at&&<span className="tool-duration">{((item.endedAt-item.at)/1000).toFixed(1)}s</span>}</summary>
           <MsgMeta role="Tool" at={item.at} />
           <div className="tool-body">
             <div className="tool-header">
@@ -462,7 +461,7 @@ const TimelineRow = memo(function TimelineRow({
               </pre>
             ) : null}
           </div>
-        </article>
+        </details>
       </Fragment>
     );
   }
@@ -475,11 +474,7 @@ const TimelineRow = memo(function TimelineRow({
         <article className="msg plan">
           <MsgMeta role="Plan" at={item.at} />
           <div className="body">
-            <ol>
-              {entries.map((e, j) => (
-                <li key={j}>{redact(planEntryLabel(e))}</li>
-              ))}
-            </ol>
+            <PlanSteps entries={normalizePlanEntries(entries)} label="Response plan"/>
           </div>
         </article>
       </Fragment>
@@ -586,6 +581,7 @@ export const MessageList = memo(function MessageList({
   pendingPermissions,
   onPermission,
   onAllowAllPermissions,
+  tailContent,
 }: {
   items: TimelineItem[];
   bottomRef: RefObject<HTMLDivElement | null>;
@@ -602,6 +598,7 @@ export const MessageList = memo(function MessageList({
   onPermission?: (reqId: string, optionId: string | "cancelled") => void;
   /** Batch-approve every open request (multi-edit batches) */
   onAllowAllPermissions?: () => void;
+  tailContent?: ReactNode;
 }) {
   const cmds = knownCommands ?? EMPTY_COMMANDS;
   const perms = pendingPermissions ?? EMPTY_PERMISSIONS;
@@ -628,34 +625,24 @@ export const MessageList = memo(function MessageList({
     <div className="timeline" ref={scrollerRef}>
       {emptyWelcome ? (
         <div className="empty-state">
-          <h2>What should we build?</h2>
+          <h2>What can I help with?</h2>
           <p>
-            This desktop app is a GUI on top of the Grok agent backbone
-            (<code>grok agent stdio</code> + ACP). Skills, MCP, auth, and models still
-            come from your Grok install.
+            Ask a question, work on files, or troubleshoot your computer.
           </p>
         </div>
       ) : (
         <>
-          {items.map((item, i) => {
-            const prev = i > 0 ? items[i - 1] : null;
-            const showDay =
-              typeof item.at === "number" &&
-              (!prev ||
-                typeof prev.at !== "number" ||
-                !sameCalendarDay(prev.at, item.at));
-
-            return (
-              <TimelineRow
-                key={item.id}
-                item={item}
-                showDay={showDay}
-                knownCommands={cmds}
-                planQuestion={item.id === questionId}
-                liveThought={item.id === liveThoughtId}
-                hideThinking={hideThinking}
-              />
-            );
+          {technicalGroups(items).map(group=>{
+            const render=(item:TimelineItem)=>{
+              const index=items.indexOf(item),prev=items[index-1];
+              return <div className="history-item" key={item.id} data-history-ordinal={item.historyOrdinal}><TimelineRow item={item} showDay={!prev||!sameCalendarDay(prev.at,item.at)} knownCommands={cmds} planQuestion={item.id===questionId} liveThought={item.id===liveThoughtId} hideThinking={hideThinking}/>{item.kind==='tool'&&perms.filter(p=>extractToolCallId(p.params)===item.toolCallId).map(p=><PendingApprovalCard key={p.reqId} request={p} onPermission={onPermission}/>)}</div>;
+            };
+            if(group.kind==='work') {
+              const running=group.items.some(item=>item.kind==='tool'&&!['completed','failed','cancelled'].includes(item.status)),failed=group.items.some(item=>item.kind==='tool'&&['failed','cancelled'].includes(item.status));
+              return <details className="work-summary" key={group.id} open={running||failed||!hideThinking||undefined}><summary><span className={`work-dot ${failed?'failed':running?'running':''}`}/><span>{failed?'Work needs attention':running?'Working through the task':`Worked through ${group.items.length} step${group.items.length===1?'':'s'}`}</span><small>{group.items.filter(item=>item.kind==='tool').length} tool{group.items.filter(item=>item.kind==='tool').length===1?'':'s'}</small></summary>{group.items.map(render)}</details>;
+            }
+            const item=group.items[0],files=producedFiles(items,items.indexOf(item));
+            return <Fragment key={item.id}>{render(item)}{files.length>0&&<div className="response-files"><span>Files from this response</span><div>{files.map(path=><button key={path} title={path} onClick={()=>document.dispatchEvent(new CustomEvent('grok:open-file-reference',{detail:path}))}><FileText size={14}/>{path.split(/[\\/]/).pop()}</button>)}</div></div>}</Fragment>;
           })}
           {perms.length > 1 && onAllowAllPermissions ? (
             <div className="perm-batch-inline" role="region" aria-label="Batch approvals">
@@ -672,7 +659,7 @@ export const MessageList = memo(function MessageList({
               </button>
             </div>
           ) : null}
-          {perms.map((p) => (
+          {perms.filter(p=>!items.some(item=>item.kind==='tool'&&item.toolCallId===extractToolCallId(p.params))).map((p) => (
             <PendingApprovalCard
               key={p.reqId}
               request={p}
@@ -681,6 +668,7 @@ export const MessageList = memo(function MessageList({
           ))}
         </>
       )}
+      {tailContent}
       <div ref={bottomRef} />
     </div>
   );

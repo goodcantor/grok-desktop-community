@@ -1,0 +1,46 @@
+import {_electron as electron} from 'playwright-core';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+const version=JSON.parse(fs.readFileSync('package.json')).version;
+const root=process.cwd(),installed=Boolean(process.env.GROK_CUSTOM_TEST_EXE),tag=installed?'installed':'packaged';
+const profile=path.join(root,'qa',`custom14-${tag}-harness-profile`),cwd=path.join(root,'qa','custom14-real-workspace');
+fs.mkdirSync(profile,{recursive:true});fs.mkdirSync(cwd,{recursive:true});
+fs.writeFileSync(path.join(profile,'desktop-state.json'),JSON.stringify({lastProject:cwd,recentProjects:[cwd],custom8AccessMigration:true,permissionMode:'ask',sandboxTerminal:true,allowOutsideProject:false,uiZoom:1,notifications:{enabled:false}}));
+const server=http.createServer((_request,response)=>{response.writeHead(200,{'content-type':'text/html'});response.end('<!doctype html><title>Packaged browser fixture</title><label>Note <input id="note"></label>');});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const env={...process.env,GROK_DESKTOP_MULTI_INSTANCE:'1'};delete env.ELECTRON_RUN_AS_NODE;delete env.GROK_DESKTOP_DEV_URL;
+const app=await electron.launch({executablePath:process.env.GROK_CUSTOM_TEST_EXE||'release/win-unpacked/Grok Desktop Community.exe',args:[`--user-data-dir=${profile}`,cwd],env,timeout:30000});
+let page;const checks={},errors=[];
+try{
+  for(let i=0;i<180;i++){page=app.windows().find(candidate=>candidate.url().endsWith('/dist/index.html'));if(page)break;await new Promise(resolve=>setTimeout(resolve,100));}assert.ok(page);
+  page.on('pageerror',error=>errors.push(error.message));await page.locator('#boot-splash').waitFor({state:'detached'});
+  await page.locator('.topbar-connection .online').waitFor({state:'attached',timeout:60000});
+  const info=await page.evaluate(()=>window.grokDesktop.getInfo());assert.equal(info.version,version);assert.equal(path.resolve(info.userData),profile);
+  assert.equal(info.permissionMode,'ask');assert.equal(info.sandboxTerminal,true);assert.equal(info.allowOutsideProject,false);checks.isolatedPreferences=true;
+  const record=(await page.evaluate(()=>window.grokDesktop.executionList())).find(row=>row.selected);assert.ok(record.sessionId);
+  const runtime=await page.evaluate(()=>window.grokDesktop.executionConnect());assert.equal(runtime.sessionId,record.sessionId);assert.ok(runtime.availableModels.length);checks.officialCliConnection=true;
+  await page.evaluate(()=>{window.__packagedOutput='';window.__packagedErrors=[];window.grokDesktop.on('pty:event',event=>{if(event.event==='data')window.__packagedOutput+=event.data;if(event.event==='error')window.__packagedErrors.push(event.error);});});
+  const tab=await page.evaluate(()=>window.grokDesktop.ptyCreate({shell:'powershell'}));
+  await page.evaluate(id=>window.grokDesktop.ptyCommand({id,action:'write',data:"Write-Output ('GROK_'+'PTY_OK')\r"}),tab.id);
+  await page.waitForFunction(()=>window.__packagedOutput.includes('GROK_PTY_OK'),null,{timeout:20000});assert.deepEqual(await page.evaluate(()=>window.__packagedErrors),[]);checks.nativePtyCommand=true;
+  await page.evaluate(id=>window.grokDesktop.ptyCommand({id,action:'close'}),tab.id);
+  const browserTab=page.getByRole('tab',{name:'Browser',exact:true});if(await browserTab.isVisible())await browserTab.click();else await page.getByRole('button',{name:'Browser',exact:true}).click();
+  await page.evaluate(url=>window.grokDesktop.openPreview(url),`http://127.0.0.1:${server.address().port}`);
+  await app.evaluate(async({webContents})=>{const guest=webContents.getAllWebContents().find(wc=>wc.getURL().startsWith('http://127.0.0.1:')&&!wc.getURL().includes('dist'));if(!guest)throw Error('Packaged guest is missing');await guest.executeJavaScript("document.getElementById('note').value='asar page retained';document.getElementById('note').dispatchEvent(new Event('input',{bubbles:true}));");});
+  assert.match(JSON.stringify(await page.evaluate(()=>window.grokDesktop.previewSnapshot())),/asar page retained/);checks.asarExecutionBrowser=true;
+  if(await page.locator('.panel-close').isVisible())await page.locator('.panel-close').click();
+  const input=page.getByRole('textbox',{name:'Message',exact:true});await input.fill('Local unsent draft for package verification');
+  await page.getByRole('button',{name:'New chat',exact:true}).click();
+  await page.waitForFunction(async before=>{const selected=(await window.grokDesktop.executionList()).find(row=>row.selected);return Boolean(selected?.sessionId&&selected.sessionId!==before);},record.sessionId);
+  await page.locator('.topbar-connection .online').waitFor({state:'attached'});
+  const catalogAfterNew=await page.evaluate(()=>window.grokDesktop.executionList());
+  const second=catalogAfterNew.find(row=>row.selected);assert.notEqual(second.recordId,record.recordId);checks.independentOfficialSessions=true;
+  await app.evaluate(({BrowserWindow},{cwd,id})=>{const win=BrowserWindow.getAllWindows().find(win=>win.webContents.getURL().endsWith('/dist/index.html'));win.webContents.send('app:select-execution',{cwd,sessionId:id});},{cwd,id:record.sessionId});
+  await page.waitForFunction(async id=>(await window.grokDesktop.executionList()).find(row=>row.selected)?.sessionId===id,record.sessionId);await page.waitForTimeout(150);
+  assert.equal(await input.inputValue(),'Local unsent draft for package verification');assert.match(JSON.stringify(await page.evaluate(()=>window.grokDesktop.previewSnapshot())),/asar page retained/);checks.packageDraftAndBrowserRestore=true;
+  assert.deepEqual(errors,[]);checks.rendererErrors=errors;await page.screenshot({path:`qa/custom14-${tag}-harness.png`});
+  fs.writeFileSync(`qa/custom14-${tag}-harness.json`,JSON.stringify({version:info.version,...checks},null,2));console.log('HARNESS_PACKAGE_OK',JSON.stringify(checks));
+}catch(error){await page?.screenshot({path:`qa/custom14-${tag}-harness-failure.png`}).catch(()=>{});throw error;}
+finally{await app.evaluate(({dialog})=>{dialog.showMessageBoxSync=()=>1;}).catch(()=>{});await app.close();server.close();for(const name of ['history-index.json','usage-cache.json'])fs.rmSync(path.join(profile,name),{force:true});}

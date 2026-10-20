@@ -1,0 +1,24 @@
+{
+  "version": "0.1.0-beta.1",
+  "targets": {
+    "windows-x64": {
+      "officialCli": "passed",
+      "signedUpdate": "pending",
+      "cliVersion": "1.0.62 (1474f9cbdd91)",
+      "date": "2026-10-20",
+      "evidence": "docs/VERIFICATION.md#windows"
+    },
+    "macos-arm64": {
+      "officialCli": "pending",
+      "signedUpdate": "pending"
+    },
+    "macos-x64": {
+      "officialCli": "pending",
+      "signedUpdate": "pending"
+    },
+    "linux-x64": {
+      "officialCli": "pending",
+      "signedUpdate": "pending"
+    }
+  }
+}

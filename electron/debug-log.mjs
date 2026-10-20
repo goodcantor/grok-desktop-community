@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 /**
  * Optional desktop debug log (main process).
  * Enable via Settings or GROK_DESKTOP_DEBUG=1 / true.
@@ -20,6 +22,7 @@ function ensurePath() {
     // Lazy require so unit tests / node --check can import terminal modules
     // without a full Electron app binding.
     // eslint-disable-next-line global-require
+    if(!process.versions.electron)throw Error('Not Electron');
     const { app } = require("electron");
     if (app?.getPath) {
       logPath = path.join(app.getPath("userData"), "desktop-debug.log");
@@ -30,7 +33,7 @@ function ensurePath() {
   }
   logPath = path.join(
     process.env.APPDATA || os.homedir(),
-    "grok-desktop",
+    "grok-desktop-community",
     "desktop-debug.log",
   );
   return logPath;
@@ -90,7 +93,7 @@ export function debugLog(scope, message, data) {
     t: new Date().toISOString(),
     scope: String(scope || "app"),
     msg: String(message || ""),
-    ...(data && typeof data === "object" ? { data } : {}),
+    ...(data && typeof data === "object" ? { data: sanitizeLogData(data) } : {}),
   };
   const line = `${JSON.stringify(row)}\n`;
   try {
@@ -123,7 +126,7 @@ export function summarizeSessionUpdate(params) {
   if (update.toolCallId || update.tool_call_id) {
     out.toolCallId = update.toolCallId || update.tool_call_id;
   }
-  if (update.title) out.title = String(update.title).slice(0, 120);
+  if (update.title) out.title = '[tool activity]';
   if (update.status) out.status = update.status;
   if (update.tool_name || update.toolName) {
     out.toolName = update.tool_name || update.toolName;
@@ -139,11 +142,6 @@ export function summarizeSessionUpdate(params) {
       ms: r?.status?.elapsed_ms,
     }));
   }
-  if (update.rawInput?.command || update.raw_input?.command) {
-    out.command = String(
-      update.rawInput?.command || update.raw_input?.command || "",
-    ).slice(0, 200);
-  }
   if (update.task_id || update.taskId) {
     out.taskId = update.task_id || update.taskId;
   }
@@ -158,4 +156,9 @@ export function summarizeSessionUpdate(params) {
     out.metaTotalTokens = params._meta.totalTokens;
   }
   return out;
+}
+
+const SAFE_LOG_FIELDS=new Set(['id','method','kind','status','event','code','pid','windowId','generation','count','elapsedMs','durationMs','ms','exitCode','signal','backend','active','waitingPermissions','bytes','chunks']);
+export function sanitizeLogData(data){
+  return Object.fromEntries(Object.entries(data||{}).filter(([key,value])=>SAFE_LOG_FIELDS.has(key)&&['string','number','boolean'].includes(typeof value)).map(([key,value])=>[key,typeof value==='string'?value.slice(0,120):value]));
 }

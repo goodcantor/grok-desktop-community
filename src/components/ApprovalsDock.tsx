@@ -4,7 +4,7 @@ import {
   permissionButtonClass,
 } from "../../shared/permission-options.mjs";
 import { formatOptionLabel } from "../lib/timeline";
-import type { PermissionRequest } from "../vite-env";
+import type { PermissionRequest } from "../types/desktop";
 
 /**
  * Sticky dock under the timeline: agent escalations must stay visible while
@@ -36,8 +36,7 @@ export const ApprovalsDock = memo(function ApprovalsDock({
             : `${permissions.length} approvals required`}
         </strong>
         <span className="approvals-dock-hint">
-          Reads and browsing are auto-allowed. This is an edit, post, or
-          changing command — the agent is blocked until you choose.
+          Grok is waiting for your decision. Review the requested action below.
         </span>
         {permissions.length > 1 ? (
           <button

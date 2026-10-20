@@ -1,0 +1,35 @@
+/* Shell palette shared by the renderer, reload overlay and native splash. */
+:root,[data-theme="dark"] {
+  color-scheme:dark;
+  --bg:#171819;--bg-elevated:#202122;--bg-soft:#242628;
+  --sidebar-bg:#1b1c1e;--panel-bg:#1b1c1e;
+  --text:#ececec;--text-muted:#a0a1a4;--heading-2:#ececec;--heading-3:#d6d8db;
+  --border:#343638;--border-soft:#2b2d2f;
+  --accent:#ececec;--accent-2:#d6d8db;--accent-rgb:236,236,236;
+  --success:#67c995;--warn:#d9b574;--danger:#e79494;--danger-soft:#f4baba;
+  --mcp-ready:var(--success);--mcp-auth:var(--warn);--mcp-down:var(--danger);--mcp-init:#8fb7ca;
+  --btn-hover-bg:#2c2e31;--btn-hover-border:#515458;--input-bg:#242628;
+  --assistant-bubble:transparent;--user-bubble:#2b2d30;--user-border:#343638;
+  --tool-bg:#202122;--tool-border:#343638;--plan-bg:#202122;--plan-border:#343638;
+  --code-bg:#141516;--code-inline-bg:#2b2d30;--pill-bg:#242628;--cmd-name-bg:#242628;
+  --error-banner-fg:#f4baba;--boot-ring:#414447;
+  --shadow:0 20px 70px #0005;--overlay-scrim:rgba(0,0,0,.55);
+  --table-stripe:rgba(255,255,255,.02);--table-th:rgba(255,255,255,.05);--queue-item-bg:rgba(0,0,0,.2);
+}
+[data-theme="light"] {
+  color-scheme:light;
+  --bg:#fff;--bg-elevated:#f6f6f6;--bg-soft:#efefef;
+  --sidebar-bg:#f4f4f4;--panel-bg:#fafafa;
+  --text:#232426;--text-muted:#66696e;--heading-2:#232426;--heading-3:#45484b;
+  --border:#d6d8db;--border-soft:#e8e9eb;
+  --accent:#252629;--accent-2:#45484b;--accent-rgb:37,38,41;
+  --success:#237a48;--warn:#8a5b10;--danger:#b53f3f;--danger-soft:#943333;
+  --mcp-ready:var(--success);--mcp-auth:var(--warn);--mcp-down:var(--danger);--mcp-init:#3d687a;
+  --btn-hover-bg:#e6e7e9;--btn-hover-border:#bcc0c5;--input-bg:#f1f2f3;
+  --assistant-bubble:transparent;--user-bubble:#eceef0;--user-border:#e1e3e6;
+  --tool-bg:#f5f5f5;--tool-border:#dedede;--plan-bg:#f5f5f5;--plan-border:#dedede;
+  --code-bg:#f1f2f3;--code-inline-bg:#e8e9eb;--pill-bg:#f1f2f3;--cmd-name-bg:#e8e9eb;
+  --error-banner-fg:#943333;--boot-ring:#d6d8db;
+  --shadow:0 20px 70px #0002;--overlay-scrim:rgba(0,0,0,.18);
+  --table-stripe:rgba(0,0,0,.02);--table-th:rgba(0,0,0,.04);--queue-item-bg:rgba(0,0,0,.04);
+}

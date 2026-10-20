@@ -2,6 +2,8 @@ import type { AutoCompactAt } from "../../../shared/auto-compact.mjs";
 import type { PermissionMode } from "../../lib/permission-mode";
 
 export type SettingsPageId =
+  | "chat"
+  | "models"
   | "general"
   | "engine"
   | "agent"
@@ -26,14 +28,16 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   {
     label: "App",
     items: [
-      { id: "general", label: "General" },
+      { id: "general", label: "Appearance" },
+      {id:"chat",label:"Chat"},
+      {id:"models",label:"Models"},
       { id: "engine", label: "Engine" },
     ],
   },
   {
-    label: "Agent",
+    label: "Access",
     items: [
-      { id: "agent", label: "Safety" },
+      { id: "agent", label: "Permissions" },
       { id: "coding-data", label: "Coding data" },
     ],
   },
@@ -55,7 +59,8 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
 ];
 
 export const PAGE_TITLES: Record<SettingsPageId, string> = {
-  general: "General",
+  general: "Appearance",
+  chat:"Chat",models:"Models",
   engine: "Engine",
   agent: "Safety",
   "coding-data": "Coding data",
@@ -76,9 +81,10 @@ export function pageFromFocus(
 export type SettingsFocusSection = "mcp" | "plugins" | "skills" | null;
 
 export type SettingsSharedProps = {
+  hideThinking?:boolean;onHideThinking?:(value:boolean)=>void;
   theme: "dark" | "light";
   privacyMode: boolean;
-  codingDataOptIn: boolean;
+  codingDataOptIn: boolean | null;
   codingDataNote?: string;
   permissionMode: PermissionMode;
   allowOutsideProject: boolean;

@@ -87,6 +87,9 @@ export function shouldFallbackToNewSession(opts = {}) {
 export function mergeRestartResult(session, backbone) {
   /** @type {Record<string, unknown>} */
   const result = {
+    ...(session.scope?{scope:session.scope}:{}),
+    ...(session.runState?{runState:session.runState}:{}),
+    ...(session.availableModels?{availableModels:session.availableModels}:{}),
     cwd: session.cwd,
     sessionId: session.sessionId,
     grokBinary: session.grokBinary,

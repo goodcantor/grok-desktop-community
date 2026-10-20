@@ -27,7 +27,7 @@ import type { PlanApprovalRequest } from "../components/PlanApprovalDialog";
 import type { AskUserRequest } from "../components/AskUserDialog";
 import type { FolderTrustRequest } from "../components/FolderTrustDialog";
 import type { ConnState } from "../lib/conn";
-import type { PermissionRequest, TimelineItem } from "../vite-env";
+import type { PermissionRequest, TimelineItem } from "../types/desktop";
 import {
   classifyOptionId,
   extractToolCallId,
@@ -655,18 +655,14 @@ export function useAgentEvents(opts: {
    */
   const onPermission = useCallback(
     async (reqId: string, optionId: string | "cancelled") => {
-      // Snapshot outside setState so we never lose the request under Strict Mode
-      let removed: PermissionRequest | undefined;
-      setPermissions((prev) => {
-        removed = prev.find((p) => p.reqId === reqId);
-        return prev.filter((p) => p.reqId !== reqId);
-      });
-      // Re-find if Strict Mode double-invoke cleared the local (use prev capture)
-      // Prefer the snapshot from the filter pass; if missing, bail cleanly.
+      // React may defer functional updaters. Snapshot before scheduling the
+      // removal, otherwise a click can disappear without reaching the agent.
+      const removed = permissions.find((p) => p.reqId === reqId);
       if (!removed) {
         // Request already gone
         return;
       }
+      setPermissions((prev) => prev.filter((p) => p.reqId !== reqId));
 
       const outcome = permissionOutcomeFromUi(
         optionId,
@@ -708,19 +704,16 @@ export function useAgentEvents(opts: {
         setError(`Permission response failed: ${msg}`);
       }
     },
-    [markToolInProgress, revertToolStatus, setError],
+    [permissions, markToolInProgress, revertToolStatus, setError],
   );
 
   /**
    * Allow every open permission with allow-once only (never allow-always).
    */
   const onAllowAllPermissions = useCallback(async () => {
-    let batch: PermissionRequest[] = [];
-    setPermissions((prev) => {
-      batch = prev;
-      return [];
-    });
+    const batch = permissions;
     if (batch.length === 0) return;
+    setPermissions([]);
 
     for (const p of batch) {
       markToolInProgress(toolCallIdFromPermission(p), {
@@ -769,7 +762,7 @@ export function useAgentEvents(opts: {
           : `${failed.length} approval(s) could not be applied. Retry the approval card(s) in the chat.`;
       setError(msg);
     }
-  }, [markToolInProgress, revertToolStatus, setError]);
+  }, [permissions, markToolInProgress, revertToolStatus, setError]);
 
   const onPlanApproval = useCallback(
     async (
@@ -785,7 +778,7 @@ export function useAgentEvents(opts: {
           : "";
       const ok = await window.grokDesktop.respondPlanApproval(reqId, {
         type: decision.type,
-        ...(decision.type === "request_changes"
+        ...((decision.type === "request_changes" || (decision.type === "approved" && window.grokDesktop.executionList))
           ? { feedback: decision.feedback }
           : {}),
       });
@@ -796,7 +789,7 @@ export function useAgentEvents(opts: {
       }
       // TUI approve-w/ comments: verdict first, then interject. Wire
       // `feedback` is only consumed on cancelled (request changes).
-      if (!comments) return;
+      if (!comments || window.grokDesktop.executionList) return;
       try {
         const result = await window.grokDesktop.interject(comments);
         if (interjectRpcFollowUp(result) === "ok") return;

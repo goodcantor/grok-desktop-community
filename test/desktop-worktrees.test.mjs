@@ -571,7 +571,7 @@ test("unpackaged skips the lock so npm run dev does not join an install", () => 
 });
 
 test("AUMID is the packaged app id", () => {
-  assert.equal(DESKTOP_APP_USER_MODEL_ID, "com.karman.grok-desktop");
+  assert.equal(DESKTOP_APP_USER_MODEL_ID, "io.github.goodcantor.grokdesktopcommunity");
 });
 
 test("configureDesktopInstance sets AUMID on win32", () => {

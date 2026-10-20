@@ -218,7 +218,7 @@ export function whichBinAll(name, opts = {}) {
   const out = [];
   for (const dir of pathDirs(env, platform)) {
     for (const n of names) {
-      const candidate = path.join(dir, n);
+      const candidate = (platform==='win32'?path.win32:path.posix).join(dir,n);
       if (exists(candidate)) {
         out.push(candidate);
         break;
@@ -241,7 +241,7 @@ export function whichBin(name, opts = {}) {
 function darwinAppPath(appName, home, exists) {
   const candidates = [
     `/Applications/${appName}.app`,
-    path.join(home, "Applications", `${appName}.app`),
+    path.posix.join(home, "Applications", `${appName}.app`),
   ];
   for (const p of candidates) {
     if (exists(p)) return p;
@@ -307,14 +307,15 @@ const SYSTEM_BIN_DIRS = new Set([
  */
 function binHasForeignSibling(found, preset, ctx) {
   if (preset.id !== "code") return false;
-  const dir = path.dirname(found).replace(/\\/g, "/").replace(/\/+$/, "");
+  const paths=ctx.platform==='win32'?path.win32:path.posix;
+  const dir = paths.dirname(found).replace(/\\/g, "/").replace(/\/+$/, "");
   if (SYSTEM_BIN_DIRS.has(dir)) return false;
   const names = ["cursor", "windsurf", "codium", "code-insiders"];
   const extras =
     ctx.platform === "win32"
       ? names.flatMap((n) => [n, `${n}.exe`, `${n}.cmd`, `${n}.EXE`, `${n}.CMD`])
       : names;
-  return extras.some((n) => ctx.exists(path.join(path.dirname(found), n)));
+  return extras.some((n) => ctx.exists(paths.join(paths.dirname(found), n)));
 }
 
 /**
@@ -397,7 +398,7 @@ function locatePreset(preset, ctx) {
       const appPath = darwinAppPath(appName, home, exists);
       if (!appPath) continue;
       for (const rel of preset.darwinCli) {
-        const cli = path.join(appPath, rel);
+        const cli = path.posix.join(appPath, rel);
         if (exists(cli)) return { kind: "cli", path: cli };
       }
       return { kind: "app", app: appName };

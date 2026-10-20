@@ -1,33 +1,12 @@
-:root,
-[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0c0c0f;
-  --bar: #14141a;
-  --border: #2a2a35;
-  --text: #f2f2f5;
-  --muted: #9a9aab;
-  --input: #1a1a22;
-  --hover: #22222c;
-  --accent: #a78bfa;
-  --danger: #f87171;
-}
-
-[data-theme="light"] {
-  color-scheme: light;
-  --bg: #f3f3f7;
-  --bar: #ffffff;
-  --border: #d4d4e0;
-  --text: #14141c;
-  --muted: #5a5a6e;
-  --input: #f7f7fb;
-  --hover: #ececf3;
-  --accent: #7c3aed;
-  --danger: #dc2626;
-}
+@import "../../shared/theme-palette.css";
+:root {--bar:var(--bg-elevated);--muted:var(--text-muted);--input:var(--input-bg);--hover:var(--btn-hover-bg);--on-accent:var(--bg);}
 
 * {
   box-sizing: border-box;
 }
+[hidden] {display:none!important}
+[data-docked="true"] .bar {-webkit-app-region:no-drag}
+button:focus-visible,input:focus-visible,select:focus-visible {outline:2px solid var(--text);outline-offset:2px}
 
 html,
 body {
@@ -39,6 +18,13 @@ body {
   overflow: hidden;
   user-select: none;
 }
+body {display:flex;flex-direction:column}
+.bar,.hint {flex-shrink:0}
+.browser-welcome {flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:16px;overflow:auto}
+.browser-welcome>span {font-size:40px;color:var(--muted)}
+.browser-welcome h1 {font-size:24px;line-height:1.2;font-weight:550;letter-spacing:-.6px;margin:0}
+.browser-welcome p {font-size:13px;line-height:1.6;color:var(--muted);max-width:320px;margin:0}
+.browser-welcome small {font-size:12px;color:var(--muted)}
 
 .bar {
   display: flex;
@@ -69,8 +55,8 @@ button {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
-  height: 30px;
-  min-width: 30px;
+  height: 36px;
+  min-width: 36px;
   padding: 0 8px;
   cursor: pointer;
 }
@@ -85,13 +71,13 @@ button:disabled {
 }
 
 .url-form {
-  flex: 1 1 auto;
+  flex: 1 1 180px;
   min-width: 0;
 }
 
 #url {
   width: 100%;
-  height: 30px;
+  height: 36px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--input);
@@ -189,7 +175,7 @@ button.is-on {
   padding: 0 5px;
   border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 10px;
   line-height: 16px;
   font-weight: 650;

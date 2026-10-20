@@ -15,6 +15,25 @@ export type SlashCommand = {
 /** Desktop-only commands (GUI actions). */
 export const DESKTOP_COMMANDS: SlashCommand[] = [
   {
+    name: "chat",
+    description: "Return to regular chat from plan mode",
+    source: "desktop",
+    local: true,
+  },
+  {
+    name: "goal",
+    description: "Run a persistent goal, or check / pause / resume it",
+    source: "desktop",
+    inputHint: "objective [--budget tokens] | status | pause | resume | clear",
+  },
+  {
+    name: "model",
+    description: "Switch the session model",
+    source: "desktop",
+    inputHint: "model ID or name",
+    local: true,
+  },
+  {
     name: "new",
     description: "Start a new chat (same as CLI /new)",
     source: "desktop",
@@ -34,7 +53,7 @@ export const DESKTOP_COMMANDS: SlashCommand[] = [
   },
   {
     name: "preview",
-    description: "Open the detachable Preview window (optional URL)",
+    description: "Open the Browser panel (optional URL)",
     source: "desktop",
     inputHint: "url | close",
     local: true,
@@ -44,7 +63,7 @@ export const DESKTOP_COMMANDS: SlashCommand[] = [
     description: "Set reasoning effort (or use topbar Effort: low/medium/high/xhigh)",
     source: "desktop",
     inputHint: "low|medium|high|xhigh",
-    // Not local: agent handles `/effort` the same as the CLI
+    local: true,
   },
   {
     name: "plan",
@@ -109,6 +128,9 @@ export function mergeCommands(parts: {
 
   // Stable-ish: desktop first, then skills (alpha), then agent-only (alpha)
   return order.sort((a, b) => {
+    const quick = ["plan", "goal", "new", "model", "effort", "compact", "preview"];
+    const aQuick = quick.indexOf(a.name), bQuick = quick.indexOf(b.name);
+    if (aQuick >= 0 || bQuick >= 0) return (aQuick < 0 ? 99 : aQuick) - (bQuick < 0 ? 99 : bQuick);
     const rank = (s: SlashCommand["source"]) =>
       s === "desktop" ? 0 : s === "skill" ? 1 : 2;
     const d = rank(a.source) - rank(b.source);

@@ -1,16 +1,25 @@
+import { configureCommunityDataPath } from './app-identity.mjs';
+import { terminalIsolationStatus } from './terminal-isolation.mjs';
+import { registerProjectFilesIpc } from "./ipc/project-files.mjs";
+import { createDesktopStateStore } from "./desktop-state.mjs";
+import { registerIntegrationsIpc } from "./ipc/integrations.mjs";
 import {
   app,
   BrowserWindow,
   clipboard,
-  ipcMain,
+  ipcMain as nativeIpcMain,
   dialog,
   shell,
   Menu,
+  Notification,
 } from "electron";
+import {createTaskNotifier,notificationPreferences} from './task-notifications.mjs';
+import {setTaskNotifier} from './window-session.mjs';
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import os from "node:os";
+import { ensureDefaultWorkspace } from "./default-workspace.mjs";
 import { attachContextMenu } from "./context-menu.mjs";
 import {
   cancelLogin,
@@ -25,20 +34,9 @@ import { mergeRestartResult } from "./agent-restart.mjs";
 import { inspectBackbone } from "./backbone.mjs";
 import { resolveGrokBinary, grokHomeDir } from "./grok-home.mjs";
 import {
-  addMcpServer,
   checkGrokUpdate,
-  disableMcpServer,
-  disablePlugin,
-  doctorMcp,
-  enableMcpServer,
-  enablePlugin,
   getGrokEngine,
   installGrokUpdate,
-  installPlugin,
-  listMcpServers,
-  listPlugins,
-  logoutMcpServer,
-  removeMcpServer,
 } from "./grok-cli.mjs";
 import {
   setupAutoUpdater,
@@ -62,18 +60,14 @@ import {
   settlePermission,
 } from "./pending-permissions.mjs";
 import {
-  ensureCodingDataDefaultOptIn,
   getCodingDataStatus,
-  setCodingDataOptIn,
 } from "./coding-data.mjs";
-import { assertPathInProject, isPathInProject } from "./path-safety.mjs";
-import { readFileForEdit, writeFileForEdit } from "./fs-content.mjs";
+import { assertPathInProject } from "./path-safety.mjs";
 import {
-  listEditors,
   normalizeExternalEditor,
-  openInEditor,
 } from "./open-editor.mjs";
 import {
+  disposeWindowSession, scopedExecutionIpc, allExecutionSessions, executionCatalog, ensureExecutionQueue, ensureAgent, selectExecution,
   APP_WINDOW_TITLE,
   applyPermissionModeToAllWindows,
   broadcastOpenCheckouts,
@@ -119,10 +113,8 @@ import {
 import { listParked, settleParked } from "./parked-request.mjs";
 import { normalizePermissionMode } from "./permission-mode.mjs";
 import {
-  DEFAULT_REASONING_EFFORT,
   normalizeReasoningEffort,
 } from "./reasoning-effort.mjs";
-import { getGitBranch, getGitDiff, getGitStatus } from "./git-info.mjs";
 import {
   debugLog,
   getDebugLogPath,
@@ -140,22 +132,36 @@ import {
   getPreviewWindow,
   openPreviewWindow,
   registerPreviewIpc,
-} from "./preview-window.mjs";
+} from "./execution-preview.mjs";
 import { previewApiAddress, startPreviewApi } from "./preview-api.mjs";
 import { installDesktopPreviewSkill } from "./preview-mcp.mjs";
 import { mapInterjectIpcError } from "../shared/acp-interject.mjs";
 import { normalizeAutoCompactAt } from "../shared/auto-compact.mjs";
-import { mergeMcpLiveStatus } from "../shared/mcp-status.mjs";
 import {
   bootBackground,
   closeSplash,
   createSplashWindow,
 } from "./splash.mjs";
 
+import {installDraftIpc} from './draft-store.mjs';
+import { migrateCustom8 } from './access-migration.mjs';
+import { installUsageIpc } from './usage-service.mjs';
+import { installQueueIpc } from './queue-store.mjs';
+import { installGitIpc } from './git-service.mjs';
+import { installPtyIpc } from './pty-service.mjs';
+import { registerWorkspaceRootsIpc } from './ipc/workspace-roots.mjs';
+import {installHistoryIpc} from './history-service.mjs';
+import {installZoom} from './zoom.mjs';
+import {requestedLaunchDirectory} from './launch-directory.mjs';
+import {stepZoom} from '../shared/zoom.mjs';
+import {terminalTimeoutMs} from './terminal-timeout.mjs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 
+configureCommunityDataPath(app);
 installCrashLogging();
+if(process.platform==='win32')app.setAppUserModelId('io.github.goodcantor.grokdesktopcommunity');
 
 // Windows: extra BrowserWindow + WebContentsView (Preview) has been taking
 // the whole process down with no JS exception (crashpad "not connected").
@@ -177,106 +183,11 @@ if (
 /** File → Quit / Cmd+Q. Window X does not set this (Settings can swallow that). */
 let appQuitting = false;
 
+const taskNotifier=createTaskNotifier({Notification,getState:()=>loadState()});
+setTaskNotifier(taskNotifier);
 const storePath = path.join(app.getPath("userData"), "desktop-state.json");
 
-function loadState() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(storePath, "utf8"));
-    const merged = {
-      recentProjects: [],
-      /** @deprecated migrated into permissionMode */
-      alwaysApprove: false,
-      /** ask | auto | always-approve */
-      permissionMode: "ask",
-      /**
-       * Reasoning effort for models that support it (`/effort`).
-       * low | medium | high | xhigh — default high (matches grok-4.5 menu).
-       */
-      reasoningEffort: DEFAULT_REASONING_EFFORT,
-      /** When false (default), agent FS + terminal cwd cannot leave project root */
-      allowOutsideProject: false,
-      /**
-       * When true (default), ACP tool shells run in an OS FS jail
-       * (Seatbelt / bwrap / WSL+bwrap / Docker). Independent of allowOutside.
-       */
-      sandboxTerminal: true,
-      /** UI theme: "dark" | "light" */
-      theme: "dark",
-      /**
-       * When true, display-only: hide $HOME prefixes (→ ~) in the UI for
-       * screenshots / demos. Does not change agent paths or disk.
-       */
-      privacyMode: false,
-      /** Write diagnostic JSONL to userData/desktop-debug.log */
-      debugLogging: false,
-      /**
-       * When true, Help → Check for updates includes GitHub prereleases
-       * (vX.Y.Z-beta.N). Default off — team installers stay on stable.
-       */
-      allowPrerelease: false,
-      /**
-       * External editor for Files / Changes.
-       * auto | cursor | code | code-insiders | zed | windsurf | subl | codium
-       * | textedit | notepad
-       */
-      externalEditor: "auto",
-      /**
-       * Call the agent compact API when last context size passes this mark.
-       * off | 64k | 128k | 192k
-       */
-      autoCompactAt: "off",
-      lastProject: null,
-      ...raw,
-    };
-    // One-time migrate legacy alwaysApprove bool → permissionMode
-    merged.permissionMode = normalizePermissionMode(
-      merged.permissionMode,
-      Boolean(merged.alwaysApprove),
-    );
-    delete merged.alwaysApprove;
-    merged.privacyMode = Boolean(merged.privacyMode);
-    merged.reasoningEffort = normalizeReasoningEffort(merged.reasoningEffort);
-    merged.debugLogging = Boolean(merged.debugLogging);
-    merged.allowPrerelease = Boolean(merged.allowPrerelease);
-    merged.externalEditor = normalizeExternalEditor(merged.externalEditor);
-    merged.autoCompactAt = normalizeAutoCompactAt(merged.autoCompactAt);
-    delete merged.worktreeSources;
-    return merged;
-  } catch {
-    return {
-      permissionMode: "ask",
-      reasoningEffort: DEFAULT_REASONING_EFFORT,
-      allowOutsideProject: false,
-      sandboxTerminal: true,
-      theme: "dark",
-      privacyMode: false,
-      debugLogging: false,
-      allowPrerelease: false,
-      externalEditor: "auto",
-      autoCompactAt: "off",
-      lastProject: null,
-      recentProjects: [],
-    };
-  }
-}
-
-function saveState(state) {
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  fs.writeFileSync(storePath, JSON.stringify(state, null, 2));
-}
-
-function rememberProjectSession(cwd, sessionId) {
-  if (!cwd || !sessionId) return;
-  const state = loadState();
-  state.lastProject = cwd;
-  state.recentProjects = [
-    cwd,
-    ...(state.recentProjects || []).filter((p) => p !== cwd),
-  ].slice(0, 12);
-  state.sessionsByProject = state.sessionsByProject || {};
-  state.sessionsByProject[cwd] = sessionId;
-  saveState(state);
-}
+const { loadState, saveState, rememberProjectSession } = createDesktopStateStore(storePath);
 
 function openPreviewFromMenu() {
   const ws = focusedSession();
@@ -291,30 +202,6 @@ function openSettingsFromMenu() {
     ws.win.focus();
     send(ws, "app:open-settings");
   }
-}
-
-/** Project cwd for grok mcp --scope project (user scope still works without). */
-function mcpCwdFromEvent(e) {
-  const ws = sessionFromEvent(e);
-  if (!ws) return undefined;
-  const cwd = ws.agent?.cwd || ws.lastCwd;
-  return cwd || undefined;
-}
-
-/** @param {unknown} err */
-function mcpIpcError(err) {
-  const message =
-    err && typeof err === "object" && "message" in err
-      ? String(/** @type {{ message?: unknown }} */ (err).message || err)
-      : String(err || "CLI command failed");
-  return {
-    ok: false,
-    data: null,
-    stdout: "",
-    stderr: message,
-    code: null,
-    error: message,
-  };
 }
 
 /**
@@ -339,9 +226,9 @@ function focusWindow(win) {
   }
 }
 
-function newWindowFromMenu() {
+function newWindowFromMenu(argv=[]) {
   // Keep the shell hidden until the renderer paints — do not show a blank frame.
-  createWindow();
+  createWindow({cwd:requestedLaunchDirectory(argv,app.isPackaged)});
 }
 
 /**
@@ -412,7 +299,7 @@ function installApplicationMenu() {
   /**
    * Fresh object each time — do not reuse one MenuItem options object in
    * multiple menus (Electron can mis-wire accelerators / click handlers).
-   * Accelerator only once so Cmd/Ctrl+N does not fire createWindow thrice.
+   * Accelerator only once so Cmd/Ctrl+Shift+N does not create multiple windows.
    * @param {{ accelerator?: string }} [opts]
    * @returns {import('electron').MenuItemConstructorOptions}
    */
@@ -474,7 +361,7 @@ function installApplicationMenu() {
     {
       label: "File",
       submenu: [
-        newWindowItem({ accelerator: "CmdOrCtrl+N" }),
+        newWindowItem({ accelerator: "CmdOrCtrl+Shift+N" }),
         newWorktreeItem(),
         { type: "separator" },
         ...(isMac ? [] : [settingsItem, { type: "separator" }]),
@@ -574,14 +461,14 @@ function installApplicationMenu() {
         {
           label: "Check for updates…",
           click: () => {
-            void checkForUpdatesInteractive({ disposeAgent: disposeAgentQuick });
+            void checkForUpdatesInteractive(updateHooks);
           },
         },
         {
           label: "Open Releases page",
           click: () => {
             void shell.openExternal(
-              "https://github.com/liaan/grok-desktop/releases",
+              "https://github.com/goodcantor/grok-desktop-community/releases",
             );
           },
         },
@@ -590,7 +477,7 @@ function installApplicationMenu() {
           label: "Install guide (Mac “damaged” fix)",
           click: () => {
             shell.openExternal(
-              "https://github.com/liaan/grok-desktop#mac-damaged-and-cant-be-opened",
+              "https://github.com/goodcantor/grok-desktop-community#troubleshooting",
             );
           },
         },
@@ -620,19 +507,20 @@ function createWindow(opts = {}) {
   const winOpts = {
     width: 1440,
     height: 900,
-    minWidth: 960,
+    minWidth: 800,
     minHeight: 640,
     title: APP_WINDOW_TITLE,
     // Hidden until the renderer has painted real UI. Showing earlier is a
     // blank native chrome — HTML inside this window cannot paint yet.
     show: false,
+    autoHideMenuBar:process.platform==='win32',
     backgroundColor: bootBackground(theme),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   };
 
@@ -644,8 +532,18 @@ function createWindow(opts = {}) {
   const win = new BrowserWindow(winOpts);
   // Session owns page-title guard + empty-shell title.
   const created = createWindowSession(win);
+  let zoomSaveTimer=null;
+  const zoomControl=installZoom(win.webContents,{initial:loadState().uiZoom||1,onChange:factor=>{
+    if(!win.isDestroyed())win.webContents.send('app:zoom',factor);
+    clearTimeout(zoomSaveTimer);zoomSaveTimer=setTimeout(()=>{const state=loadState();state.uiZoom=factor;saveState(state);},250);
+  }});
+  win.webContents.desktopZoom=zoomControl;
   if (opts.cwd) created.pendingOpenCwd = String(opts.cwd);
   attachContextMenu(win);
+  win.webContents.on('will-prevent-unload',event=>{
+    const choice=dialog.showMessageBoxSync(win,{type:'question',buttons:['Keep window open','Discard and close'],defaultId:0,cancelId:0,message:'You have unsaved edits or queued messages.',detail:'Keep this window open to save file edits or send queued messages. Closing discards these unsaved items; saved drafts and conversation history are kept.'});
+    if(choice===1)event.preventDefault();else{closeConfirmed=false;quitTasksConfirmed=false;appQuitting=false;}
+  });
 
   win.on("close", (e) => {
     if (appQuitting || isQuittingForUpdate()) return;
@@ -702,8 +600,8 @@ function createWindow(opts = {}) {
   });
 
   if (isDev) {
-    void win.loadURL("http://127.0.0.1:5173");
-    win.webContents.once("dom-ready", () => {
+    void win.loadURL(process.env.GROK_DESKTOP_DEV_URL || "http://127.0.0.1:5173");
+    if(!process.env.GROK_DESKTOP_DEV_URL?.startsWith('file:'))win.webContents.once("dom-ready", () => {
       setTimeout(() => {
         if (windowSessions.size <= 1 && !win.isDestroyed()) {
           win.webContents.openDevTools({ mode: "detach" });
@@ -713,6 +611,16 @@ function createWindow(opts = {}) {
   } else {
     void win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
+
+  let closeConfirmed=false;
+  win.on('close',event=>{
+    const host=windowSessions.get(win.id);
+    const running=[...(host?.records?.values()||[])].filter(row=>row.queue?.running||row.agent?.getRunState().active);
+    if(!running.length||closeConfirmed||appQuitting)return;
+    event.preventDefault();
+    const decision=dialog.showMessageBoxSync(win,{type:'question',buttons:['Keep working','Stop tasks and close'],defaultId:0,cancelId:0,message:`${running.length} chat${running.length===1?' is':'s are'} still working`,detail:'Closing this window stops its agents. Your history and unsent messages will be kept.'});
+    if(decision===1){closeConfirmed=true;for(const row of running){row.queue?.stop();row.agent?.cancel();}win.close();}
+  });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     // Never open data:/blob: via openExternal
@@ -738,20 +646,56 @@ function createWindow(opts = {}) {
   return win;
 }
 
+async function applyNewChatDefaults(ws,result) {
+  if(result.resumed||!ws.agent?.ready)return result;
+  const agent=ws.agent,sessionId=agent.sessionId,effort=normalizeReasoningEffort(loadState().reasoningEffort);
+  if(agent.reasoningEffort!==effort){const applied=await agent.setReasoningEffort(effort);if(ws.agent!==agent||agent.sessionId!==sessionId)throw Error('Session changed');if(!applied.agentSynced)result.warning=[result.warning,applied.error].filter(Boolean).join(' · ');}
+  return result;
+}
+
+const unlockUpdate=async()=>{for(const host of windowSessions.values())if(!host.win.isDestroyed())await host.win.webContents.executeJavaScript('document.documentElement.inert=false').catch(()=>{});};
+const updateHooks={unlockUpdate,prepareUpdate:async()=>{
+  const blocked=()=>allExecutionSessions().some(record=>record.queue?.running||record.agent?.getRunState().active||executionCatalog(record.host).some(row=>row.waiting));
+  if(blocked())return false;
+  for(const host of windowSessions.values()){
+    const ready=await host.win.webContents.executeJavaScript('Boolean(window.__communityReady && !window.__communityUnsavedEdits && (document.documentElement.inert=true))').catch(()=>false);
+    if(!ready){await unlockUpdate();return false;}
+  }
+  if(blocked()){await unlockUpdate();return false;}
+  for(const record of allExecutionSessions())if(record.queue)record.queue.update({action:'pause',paused:true});
+  return true;
+}};
+const ipcMain=scopedExecutionIpc(nativeIpcMain,{isClosing:()=>isQuittingForUpdate()});
+async function resolveConcurrentChat(ws,cwd) {
+  if(!fs.existsSync(path.join(cwd,'.git')))return {cwd,mode:'new'};
+  const other=allExecutionSessions().find(row=>row.host===ws.host&&row.lastCwd===cwd&&(row.queue?.running||row.agent?.getRunState().active));
+  if(!other)return {cwd,mode:'new'};
+  const choice=dialog.showMessageBoxSync(ws.win,{type:'question',buttons:['Return to running chat','Use shared folder','Create Grok worktree'],defaultId:0,cancelId:0,message:'Another chat is working in this checkout',detail:'A shared folder lets both agents edit the same files. A Grok worktree gives the new task a separate checkout.'});
+  if(choice===0)return {cwd,mode:'resume',sessionId:other.lastSessionId};
+  if(choice===1)return {cwd,mode:'new'};
+  const created=await createAcpWorktree(other.agent,{sourceCwd:cwd});
+  return {cwd:created.path,mode:'new'};
+}
 function registerIpc() {
+  ipcMain.handle('execution:connect',async e=>{const ws=sessionFromEvent(e);const agent=await ensureAgent(ws,ws.lastCwd,{resumeSessionId:ws.lastSessionId});return agent.getRuntimeState();});
+  ipcMain.handle('execution:list', e => executionCatalog(sessionFromEvent(e).host));
+  ipcMain.handle('execution:queue-state',e=>ensureExecutionQueue(sessionFromEvent(e)).snapshot());
+  ipcMain.handle('execution:submit',(e,{item,mode})=>ensureExecutionQueue(sessionFromEvent(e)).submit(item,mode));
+  ipcMain.handle('execution:queue-action',(e,args)=>ensureExecutionQueue(sessionFromEvent(e)).update(args));
+
   ipcMain.on("window:ready", (e) => {
     const reveal = revealByWebContents.get(e.sender);
     if (typeof reveal === "function") reveal();
   });
 
-  ipcMain.handle("app:get-info", async () => {
+  ipcMain.handle("app:get-info", async (e) => {
     const state = loadState();
     const auth = getAuthStatus();
-    // CLI /privacy default for Desktop: opt in when field missing so coding
-    // data can appear in the SpaceXAI console (same auth.json field as TUI).
-    const codingData = ensureCodingDataDefaultOptIn();
+    // Reading metadata never changes native privacy preferences.
+    const codingData = getCodingDataStatus();
     return {
       version: app.getVersion(),
+      windowId:sessionFromEvent(e)?.win?.id||0,
       platform: process.platform,
       grokBinary: resolveGrokBinary(),
       grokHome: grokHomeDir(),
@@ -759,10 +703,12 @@ function registerIpc() {
       /** @deprecated use permissionMode === 'always-approve' */
       alwaysApprove: state.permissionMode === "always-approve",
       permissionMode: normalizePermissionMode(state.permissionMode),
-      reasoningEffort: normalizeReasoningEffort(state.reasoningEffort),
+      reasoningEffort: sessionFromEvent(e)?.agent?.reasoningEffort || normalizeReasoningEffort(state.reasoningEffort),
+      defaultReasoningEffort: normalizeReasoningEffort(state.reasoningEffort),
       allowOutsideProject: Boolean(state.allowOutsideProject),
       sandboxTerminal: state.sandboxTerminal !== false,
-      sandboxStatus: sandboxStatusLabel({ lazy: true }),
+      sandboxStatus: state.sandboxTerminal === false ? 'Host shell — tool processes have your user account access' : sandboxStatusLabel({ lazy: true }),
+      terminalIsolation: terminalIsolationStatus(state.sandboxTerminal !== false,probeSandbox({lazy:true})),
       sandboxBackend: probeSandbox({ lazy: true }).backend,
       theme: state.theme === "light" ? "light" : "dark",
       privacyMode: Boolean(state.privacyMode),
@@ -779,6 +725,7 @@ function registerIpc() {
       recentProjects: state.recentProjects || [],
       lastProject: state.lastProject,
       home: os.homedir(),
+      defaultWorkspace: ensureDefaultWorkspace(),
       auth,
       previewApi: Boolean(previewApiAddress()),
     };
@@ -864,88 +811,39 @@ function registerIpc() {
     return inspectBackbone(cwd || process.cwd());
   });
 
+  const windowRunState = (ws) => {
+    const state = ws?.agent?.getRunState() || {sessionId:ws?.lastSessionId||null,active:false,connected:Boolean(ws?.readOnly),startedAt:null,lastActivityAt:null,waitingPermissions:0};
+    return {...state, waitingPermissions: state.waitingPermissions + ['pendingPlanApprovals','pendingUserQuestions','pendingFolderTrust','pendingMcpElicits'].reduce((n,key)=>n+(ws?.[key]?.size||0),0)};
+  };
+  ipcMain.handle('agent:run-state', e => windowRunState(sessionFromEvent(e)));
+  ipcMain.handle('app:get-zoom',e=>e.sender.getZoomFactor());
+  ipcMain.handle('app:notification-preferences',(_e,patch)=>{
+    const state=loadState();
+    if(patch!=null){
+      if(typeof patch!=='object'||Array.isArray(patch)||Object.keys(patch).some(key=>!['enabled','sound'].includes(key)||typeof patch[key]!=='boolean'))throw Error('Invalid notification preferences');
+      state.notifications={...notificationPreferences(state),...patch};saveState(state);
+      if(!state.notifications.enabled)taskNotifier.dismissAll();
+    }
+    return {...notificationPreferences(state),supported:Notification.isSupported()};
+  });
+  ipcMain.handle('app:set-zoom',(e,value)=>e.sender.desktopZoom?.apply(value)??e.sender.getZoomFactor());
+  ipcMain.on('app:step-zoom',(e,direction)=>{if(['in','out','reset'].includes(direction))e.sender.desktopZoom?.apply(direction==='reset'?1:stepZoom(e.sender.getZoomFactor(),direction));});
+  ipcMain.handle('app:diagnostics',async(e)=>{
+    const ws=sessionFromEvent(e),agent=ws?.agent,engine=await getGrokEngine();
+    return {appVersion:app.getVersion(),engineVersion:engine.version||'unknown',electron:process.versions.electron,platform:process.platform,
+      connection:agent?.ready?(agent.desktopPromptActive?'working':'ready'):'disconnected',
+      lastConnectionEvent:ws?.lastConnectionEvent||null,workspace:agent?.cwd?.replace(os.homedir(),'~')||null,sessionId:agent?.sessionId||null,
+      model:agent?.currentModelId||null,reasoningEffort:agent?.reasoningEffort||null,permissionMode:agent?.permissionMode||null,
+      terminalBackend:probeSandbox({lazy:true}).backend,terminalTimeoutMs:terminalTimeoutMs(probeSandbox({lazy:true}).backend),
+      promptTimeoutMs:0,run:windowRunState(ws)};
+  });
   ipcMain.handle("grok:engine", async () => getGrokEngine());
 
   ipcMain.handle("grok:update-check", async () => checkGrokUpdate());
 
   ipcMain.handle("grok:update-install", async () => installGrokUpdate());
 
-  ipcMain.handle("mcp:list", async (e, opts = {}) => {
-    const listed = await listMcpServers({ cwd: mcpCwdFromEvent(e) });
-    const agent = sessionFromEvent(e)?.agent;
-    if (!listed?.servers || !agent?.ready || !agent.sessionId) {
-      return { ...listed, liveOk: false };
-    }
-    try {
-      const live = await agent.listMcpSessionCatalog({
-        cache: opts?.cache !== false,
-      });
-      return {
-        ...listed,
-        liveOk: true,
-        servers: mergeMcpLiveStatus(listed.servers, live, {
-          assumeInitializing: true,
-        }),
-      };
-    } catch (err) {
-      debugLog("mcp", "live-list-failed", {
-        error: err?.message || String(err),
-      });
-      return {
-        ...listed,
-        liveOk: false,
-        servers: mergeMcpLiveStatus(listed.servers, [], {
-          assumeInitializing: true,
-        }),
-      };
-    }
-  });
-
-  ipcMain.handle("mcp:add", async (e, spec = {}) => {
-    const cwd = mcpCwdFromEvent(e);
-    if (spec?.scope === "project" && !cwd) {
-      return mcpIpcError("Open a project to add a project-scoped MCP server.");
-    }
-    try {
-      return await addMcpServer(spec || {}, { cwd });
-    } catch (err) {
-      return mcpIpcError(err);
-    }
-  });
-
-  ipcMain.handle("mcp:enable", async (e, name) => {
-    try {
-      return await enableMcpServer(name, { cwd: mcpCwdFromEvent(e) });
-    } catch (err) {
-      return mcpIpcError(err);
-    }
-  });
-
-  ipcMain.handle("mcp:disable", async (e, name) => {
-    try {
-      return await disableMcpServer(name, { cwd: mcpCwdFromEvent(e) });
-    } catch (err) {
-      return mcpIpcError(err);
-    }
-  });
-
-  ipcMain.handle("mcp:remove", async (e, payload) => {
-    const name = typeof payload === "string" ? payload : payload?.name;
-    const scope = typeof payload === "object" && payload ? payload.scope : undefined;
-    try {
-      return await removeMcpServer(name, { cwd: mcpCwdFromEvent(e), scope });
-    } catch (err) {
-      return mcpIpcError(err);
-    }
-  });
-
-  ipcMain.handle("mcp:doctor", async (e, name) => {
-    try {
-      return await doctorMcp(name, { cwd: mcpCwdFromEvent(e) });
-    } catch (err) {
-      return mcpIpcError(err);
-    }
-  });
+  registerIntegrationsIpc({ ipcMain, sessionFromEvent, debugLog });
 
   ipcMain.handle("settings:set-open", (e, open) => {
     const ws = sessionFromEvent(e);
@@ -953,64 +851,12 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle("mcp:logout", async (_e, name) => {
-    try {
-      return logoutMcpServer(name);
-    } catch (err) {
-      return mcpIpcError(err);
-    }
-  });
-
-  ipcMain.handle("mcp:auth", async (e, name) => {
+  ipcMain.handle("attachments:pick", async (e, kind) => {
+    if (kind !== "file" && kind !== "folder") throw new Error("Invalid attachment type");
     const ws = sessionFromEvent(e);
-    const agent = ws?.agent;
-    if (!agent?.ready || !agent.sessionId) {
-      return {
-        ok: false,
-        status: "failed",
-        serverName: String(name || ""),
-        error:
-          "Open a project first. Sign-in uses the live agent so Grok can open the browser.",
-      };
-    }
-    try {
-      return await agent.authenticateMcpServer(name);
-    } catch (err) {
-      return {
-        ok: false,
-        status: "failed",
-        serverName: String(name || ""),
-        error: err?.message || String(err),
-      };
-    }
-  });
-
-  ipcMain.handle("plugin:list", async (e) => {
-    return listPlugins({ cwd: mcpCwdFromEvent(e) });
-  });
-
-  ipcMain.handle("plugin:enable", async (e, name) => {
-    try {
-      return await enablePlugin(name, { cwd: mcpCwdFromEvent(e) });
-    } catch (err) {
-      return mcpIpcError(err);
-    }
-  });
-
-  ipcMain.handle("plugin:disable", async (e, name) => {
-    try {
-      return await disablePlugin(name, { cwd: mcpCwdFromEvent(e) });
-    } catch (err) {
-      return mcpIpcError(err);
-    }
-  });
-
-  ipcMain.handle("plugin:install", async (e, source) => {
-    try {
-      return await installPlugin(source, { cwd: mcpCwdFromEvent(e) });
-    } catch (err) {
-      return mcpIpcError(err);
-    }
+    const parent = ws?.win && !ws.win.isDestroyed() ? ws.win : BrowserWindow.getFocusedWindow() || undefined;
+    const result = await dialog.showOpenDialog(parent, {title: kind === "folder" ? "Attach folders" : "Attach files", properties: [kind === "folder" ? "openDirectory" : "openFile", "multiSelections"]});
+    return result.canceled ? [] : result.filePaths.map(file => ({path: file, name: path.basename(file), kind}));
   });
 
   ipcMain.handle("project:pick", async (e) => {
@@ -1054,7 +900,8 @@ function registerIpc() {
     if (!cwd || !fs.existsSync(cwd)) {
       throw new Error(`Project path not found: ${cwd}`);
     }
-    const agent = agentForWorktreeRpc(cwd, ws, windowSessions.values());
+    if(opts.mode==='new'&&!opts.allowSameCheckout){const target=await resolveConcurrentChat(ws,cwd);cwd=target.cwd;opts={...opts,...target};}
+    const agent = agentForWorktreeRpc(cwd, ws, allExecutionSessions());
     ws.openingCwd = cwd;
     broadcastOpenCheckouts();
     try {
@@ -1074,14 +921,20 @@ function registerIpc() {
         listSessions: listSessionsForCwd,
         remember: rememberProjectSession,
       });
-      await commitFamilyAfterOpen(cwd, ws.agent, plan.acpWorktrees);
-      return result;
+      await commitFamilyAfterOpen(cwd, sessionFromEvent({sender:e.sender}).agent, plan.acpWorktrees);
+      return applyNewChatDefaults(sessionFromEvent({sender:e.sender}),result);
     } finally {
       if (ws.openingCwd === cwd) ws.openingCwd = null;
       broadcastOpenCheckouts();
     }
   });
 
+  ipcMain.handle('project:recover',async(e,cwd,sessionId)=>{
+    const ws=sessionFromEvent(e);if(!ws||!cwd||!fs.existsSync(cwd))throw Error('Workspace unavailable');
+    const previous=ws.agent;clearProjectOnWindow(ws);ws.agentChain=Promise.resolve();
+    if(previous)await previous.dispose();
+    return openSessionOnWindow(ws,{cwd,mode:sessionId?'resume':'continue',sessionId,mostRecent:mostRecentSession,loadState:loadSessionOpenState,listSessions:listSessionsForCwd,remember:rememberProjectSession});
+  });
   ipcMain.handle("project:list-open", async () => collectOpenCheckouts());
 
   ipcMain.handle("project:focus-window", async (_e, windowId) => {
@@ -1115,7 +968,7 @@ function registerIpc() {
         ? cwd
         : ws?.agent?.cwd || ws?.lastCwd;
     if (!root) return inspectProjectCheckout("");
-    const agent = agentForWorktreeRpc(root, ws, windowSessions.values());
+    const agent = agentForWorktreeRpc(root, ws, allExecutionSessions());
     return inspectProjectCheckout(root, {
       agent,
       openRows: collectOpenCheckouts(),
@@ -1139,7 +992,7 @@ function registerIpc() {
           : "Open a project first — worktrees need a live Grok session.",
       );
     }
-    const agent = agentForWorktreeRpc(targetCwd, ws, windowSessions.values());
+    const agent = agentForWorktreeRpc(targetCwd, ws, allExecutionSessions());
     return createAcpWorktree(agent, {
       sourceCwd: targetCwd,
       label: opts.label,
@@ -1218,10 +1071,14 @@ function registerIpc() {
     const ws = sessionFromEvent(e);
     const project = cwd || ws?.agent?.cwd || ws?.lastCwd;
     if (!project) throw new Error("No project open");
-    const agent = ws?.agent;
+    const owner=allExecutionSessions().find(record=>record.lastCwd===project&&record.lastSessionId===sessionId);
+    if(owner&&(owner.queue?.running||owner.agent?.getRunState().active||owner.queue?.items.length||['pendingPlanApprovals','pendingUserQuestions','pendingFolderTrust','pendingMcpElicits'].some(key=>owner[key].size)))throw Error('Stop this chat and remove its queued messages before deleting it.');
+    const forgetOwner=()=>{if(owner){disposeWindowSession(owner);owner.host.records.delete(owner.recordId);if(owner.host.selected===owner)owner.host.selected=owner.host.create();}};
+    const agent = owner?.agent || ws?.agent;
     if (agent?.ready) {
       try {
         await agent.deleteSession({ sessionId, cwd: project });
+        forgetOwner();
         return { ok: true, sessions: listSessionsForCwd(project) };
       } catch (err) {
         const missing =
@@ -1235,6 +1092,7 @@ function registerIpc() {
       }
     }
     deleteSessionOnDisk(project, sessionId);
+    forgetOwner();
     return { ok: true, sessions: listSessionsForCwd(project) };
   });
 
@@ -1244,26 +1102,31 @@ function registerIpc() {
     if (!cwd || !fs.existsSync(cwd)) {
       throw new Error(`Project path not found: ${cwd}`);
     }
-    return openSessionOnWindow(ws, {
-      cwd,
-      mode: mode === "new" ? "new" : "resume",
-      sessionId,
+    const target=mode==='new'?await resolveConcurrentChat(ws,cwd):{cwd,mode:'resume',sessionId};
+    const result=await openSessionOnWindow(ws, {
+      ...target,
       mostRecent: mostRecentSession,
       loadState: loadSessionOpenState,
       listSessions: listSessionsForCwd,
       remember: rememberProjectSession,
     });
+    return applyNewChatDefaults(sessionFromEvent({sender:e.sender}),result);
   });
 
   ipcMain.handle(
     "agent:prompt",
     async (e, { text, images = [], imageQuality = "compact" }) => {
-      const agent = sessionFromEvent(e)?.agent;
+      const ws=sessionFromEvent(e),agent=ws ? await ensureAgent(ws,ws.lastCwd,{resumeSessionId:ws.lastSessionId}) : null;
       if (!agent?.ready)
         throw new Error("Agent not connected. Open a project first.");
+      const sessionId=agent.sessionId,noticeKey=`turn:${Date.now()}:${Math.random()}`;
+      taskNotifier.dismiss(ws);
       try {
-        return await agent.prompt(text, { images, imageQuality });
+        const reply=await agent.prompt(text, { images, imageQuality });
+        if(reply?.stopReason!=='cancelled')taskNotifier.show(ws,{kind:'complete',key:noticeKey,sessionId});
+        return reply;
       } catch (err) {
+        if(!/cancel/i.test(err?.message||''))taskNotifier.show(ws,{kind:'failed',key:noticeKey,sessionId});
         // IPC clones Error.message only — keep the formatted ACP reason.
         throw new Error(err?.message || String(err));
       }
@@ -1314,8 +1177,7 @@ function registerIpc() {
     // permissions + plan approval + ask-user), dismiss renderer modals,
     // then notify the agent and tear down tool terminals.
     const ws = sessionFromEvent(e);
-    if (ws) clearPendingPermissions(ws);
-    ws?.agent?.cancel();
+    if (ws) { if(ws.queue) ws.queue.stop(); else {clearPendingPermissions(ws);ws.agent?.cancel();} }
     return true;
   });
 
@@ -1391,11 +1253,13 @@ function registerIpc() {
 
   ipcMain.handle("agent:plan-approval-respond", async (e, { reqId, decision }) => {
     const ws = sessionFromEvent(e);
-    return settleParkedIpc(
-      ws?.pendingPlanApprovals,
-      reqId,
-      decision || { type: "abandoned" },
-    );
+    const comments=decision?.type==='approved'?String(decision.feedback||'').trim():'';
+    const settled=settleParkedIpc(ws?.pendingPlanApprovals,reqId,decision?.type==='approved'?{type:'approved'}:decision||{type:'abandoned'});
+    if(settled&&comments){
+      try{const result=await ws.agent.interject(comments);if(result?.ok===false)throw Error('Interject unavailable');}
+      catch{await ensureExecutionQueue(ws).submit({id:crypto.randomUUID(),text:comments,images:[],at:Date.now()},'auto');}
+    }
+    return settled;
   });
 
   ipcMain.handle("agent:user-question-respond", async (e, { reqId, decision }) => {
@@ -1449,25 +1313,20 @@ function registerIpc() {
     return applyPermissionModeToAllWindows(mode, prev);
   });
 
+  ipcMain.handle('app:set-reasoning-default',(_e,value)=>{const state=loadState();state.reasoningEffort=normalizeReasoningEffort(value);saveState(state);return state.reasoningEffort;});
   ipcMain.handle("agent:set-reasoning-effort", async (e, value) => {
     const effort = normalizeReasoningEffort(value);
     const state = loadState();
-    state.reasoningEffort = effort;
-    saveState(state);
     /** @type {{ effort: string, agentSynced: boolean, error?: string }} */
     let result = { effort, agentSynced: false };
     const agent = sessionFromEvent(e)?.agent;
+    const expected=agent?.sessionId;
     if (agent?.setReasoningEffort) {
       result = await agent.setReasoningEffort(effort);
     }
-    for (const other of windowSessions.values()) {
-      if (other.agent === agent || !other.agent?.setReasoningEffort) continue;
-      try {
-        await other.agent.setReasoningEffort(effort);
-      } catch {
-        /* ignore */
-      }
-    }
+
+    const live=sessionFromEvent(e)?.agent;if(live!==agent||live?.sessionId!==expected)return {effort:live?.reasoningEffort||state.reasoningEffort,agentSynced:false,error:"Session changed"};
+    if (result.error && !result.agentSynced) return result;
     return result;
   });
 
@@ -1495,7 +1354,20 @@ function registerIpc() {
         error: "Session changed",
       };
     }
+
     return result;
+  });
+
+  ipcMain.handle("agent:get-runtime-state", async (e) => {
+    const agent = sessionFromEvent(e)?.agent;
+    if (!agent?.ready) throw new Error("Agent is not ready");
+    return agent.getRuntimeState();
+  });
+
+  ipcMain.handle("agent:set-context-window", async (e, size) => {
+    const agent = sessionFromEvent(e)?.agent;
+    if (!agent?.ready) throw new Error("Agent is not ready");
+    const result=await agent.setContextWindow(size);if(sessionFromEvent(e)?.agent!==agent)throw Error("Session changed");return result;
   });
 
   ipcMain.handle("agent:set-session-mode", async (e, modeId) => {
@@ -1525,7 +1397,7 @@ function registerIpc() {
     const state = loadState();
     state.allowOutsideProject = Boolean(value);
     saveState(state);
-    for (const ws of windowSessions.values()) {
+    for (const ws of allExecutionSessions()) {
       ws.agent?.setAllowOutsideProject(state.allowOutsideProject);
     }
     return state.allowOutsideProject;
@@ -1536,7 +1408,7 @@ function registerIpc() {
     // Explicit boolean from UI — do not use `!== false` here (undefined would stick ON)
     state.sandboxTerminal = Boolean(value);
     saveState(state);
-    for (const ws of windowSessions.values()) {
+    for (const ws of allExecutionSessions()) {
       ws.agent?.setSandboxTerminal(state.sandboxTerminal);
     }
     // Start Docker image pull/build off the UI thread when sandbox is (re)enabled
@@ -1572,8 +1444,8 @@ function registerIpc() {
   /** CLI `/privacy` — coding data retention & training (auth.json). */
   ipcMain.handle("app:get-coding-data", async () => getCodingDataStatus());
 
-  ipcMain.handle("app:set-coding-data-opt-in", async (_e, value) => {
-    return setCodingDataOptIn(Boolean(value));
+  ipcMain.handle("app:set-coding-data-opt-in", async () => {
+    throw new Error('Sharing is managed by the official Grok CLI /privacy command.');
   });
 
   ipcMain.handle("app:set-allow-prerelease", async (_e, value) => {
@@ -1639,144 +1511,7 @@ function registerIpc() {
     return p;
   });
 
-  ipcMain.handle("git:branch", async (e, cwd) => {
-    const root =
-      typeof cwd === "string" && cwd
-        ? cwd
-        : sessionFromEvent(e)?.agent?.cwd;
-    if (!root) return { branch: null, detached: false };
-    return getGitBranch(root);
-  });
-
-  ipcMain.handle("git:status", async (e, cwd) => {
-    const sessionCwd = sessionFromEvent(e)?.agent?.cwd;
-    if (!sessionCwd) return { files: [] };
-    try {
-      const root =
-        typeof cwd === "string" && cwd
-          ? assertPathInProject(sessionCwd, cwd)
-          : sessionCwd;
-      return getGitStatus(root);
-    } catch {
-      return { files: [] };
-    }
-  });
-
-  ipcMain.handle("git:diff", async (e, filePath, opts) => {
-    const staged = Boolean(opts && opts.staged);
-    const rel = filePath == null ? "" : String(filePath);
-    const sessionCwd = sessionFromEvent(e)?.agent?.cwd;
-    if (!sessionCwd || !rel) {
-      return { path: rel, staged, diff: null };
-    }
-    try {
-      const safe = assertPathInProject(sessionCwd, rel);
-      return getGitDiff(sessionCwd, safe, { staged });
-    } catch {
-      return { path: rel, staged, diff: null };
-    }
-  });
-
-  ipcMain.handle("fs:read-file", async (e, filePath) => {
-    const root = sessionFromEvent(e)?.agent?.cwd;
-    if (!root) throw new Error("No project open");
-    const safe = assertPathInProject(root, filePath);
-    return readFileForEdit(safe);
-  });
-
-  ipcMain.handle("fs:write-file", async (e, filePath, content) => {
-    const root = sessionFromEvent(e)?.agent?.cwd;
-    if (!root) throw new Error("No project open");
-    const safe = assertPathInProject(root, filePath);
-    await writeFileForEdit(safe, content);
-    return { ok: true };
-  });
-
-  ipcMain.handle("fs:list-dir", async (e, dirPath) => {
-    const root = sessionFromEvent(e)?.agent?.cwd;
-    if (!root) throw new Error("No project open");
-    const safe = assertPathInProject(root, dirPath);
-    const entries = await fs.promises.readdir(safe, { withFileTypes: true });
-    return entries
-      .filter((ent) => !ent.name.startsWith("."))
-      .slice(0, 200)
-      .map((ent) => {
-        // Symlink-to-dir is enterable only when the realpath stays in-project.
-        let isDirectory = ent.isDirectory();
-        if (!isDirectory && ent.isSymbolicLink()) {
-          const child = path.join(safe, ent.name);
-          try {
-            isDirectory =
-              fs.statSync(child).isDirectory() && isPathInProject(root, child);
-          } catch {
-            isDirectory = false;
-          }
-        }
-        return {
-          name: ent.name,
-          isDirectory,
-          path: path.join(safe, ent.name),
-        };
-      });
-  });
-
-  ipcMain.handle("editor:list", async () => {
-    const preferred = normalizeExternalEditor(loadState().externalEditor);
-    const editors = listEditors();
-    const resolved =
-      editors.find((ed) => ed.id === preferred && ed.available) ||
-      editors.find((ed) => ed.available && !ed.lastResort) ||
-      editors.find((ed) => ed.available) ||
-      null;
-    return {
-      preferred,
-      resolved: resolved ? resolved.id : null,
-      resolvedLabel: resolved ? resolved.label : null,
-      editors,
-    };
-  });
-
-  ipcMain.handle("app:set-external-editor", async (_e, value) => {
-    const state = loadState();
-    state.externalEditor = normalizeExternalEditor(value);
-    saveState(state);
-    const editors = listEditors();
-    const resolved =
-      editors.find((ed) => ed.id === state.externalEditor && ed.available) ||
-      editors.find((ed) => ed.available && !ed.lastResort) ||
-      editors.find((ed) => ed.available) ||
-      null;
-    return {
-      preferred: state.externalEditor,
-      resolved: resolved ? resolved.id : null,
-      resolvedLabel: resolved ? resolved.label : null,
-      editors,
-    };
-  });
-
-  // Renderer shell helpers are always project-scoped (ignore allowOutsideProject).
-  // Open in a real editor — never Launch Services / the default browser.
-  ipcMain.handle("shell:open-path", async (e, target) => {
-    const root = sessionFromEvent(e)?.agent?.cwd;
-    if (!root) throw new Error("No project open");
-    const safe = assertPathInProject(root, target);
-    const preference = normalizeExternalEditor(loadState().externalEditor);
-    return openInEditor(safe, { preference });
-  });
-
-  ipcMain.handle("shell:open-editor", async (e, target) => {
-    const root = sessionFromEvent(e)?.agent?.cwd;
-    if (!root) throw new Error("No project open");
-    const safe = assertPathInProject(root, target);
-    const preference = normalizeExternalEditor(loadState().externalEditor);
-    return openInEditor(safe, { preference });
-  });
-
-  ipcMain.handle("shell:show-item", async (e, target) => {
-    const root = sessionFromEvent(e)?.agent?.cwd;
-    if (!root) throw new Error("No project open");
-    shell.showItemInFolder(assertPathInProject(root, target));
-  });
+  registerProjectFilesIpc({ ipcMain, sessionFromEvent, shell, loadState, saveState });
 
   registerPreviewIpc({
     loadState,
@@ -1830,7 +1565,7 @@ const isPrimaryInstance = isPrimaryDesktopInstance(app);
 if (!isPrimaryInstance) {
   app.quit();
 } else {
-  wireSecondInstance(app, () => newWindowFromMenu());
+  wireSecondInstance(app, argv => newWindowFromMenu(argv));
 }
 
 app.whenReady().then(() => {
@@ -1838,11 +1573,19 @@ app.whenReady().then(() => {
   setDesktopStateLoader(loadState);
   setAllowPrerelease(Boolean(loadState().allowPrerelease));
   registerIpc();
+  installHistoryIpc({ipcMain,app,BrowserWindow,dialog});
+  installDraftIpc({ipcMain,app});
+  migrateCustom8(storePath,loadState());
+  installUsageIpc({ ipcMain, app, BrowserWindow, sessionFromEvent });
+  installQueueIpc({ ipcMain, app });
+  installGitIpc({ ipcMain, sessionFromEvent });
+  installPtyIpc({ ipcMain, app, sessionFromEvent, loadState });
+  registerWorkspaceRootsIpc({ ipcMain, dialog, BrowserWindow, sessionFromEvent });
   wireWindowMenuRefresh();
   // Native splash first; main window stays hidden until the renderer paints.
-  createWindow({ splash: true });
+  createWindow({ splash: true, cwd:requestedLaunchDirectory(process.argv,app.isPackaged) });
   installApplicationMenu();
-  setupAutoUpdater({ disposeAgent: disposeAgentQuick });
+  setupAutoUpdater(updateHooks);
 
   void startPreviewApi({
     // Fallback when the MCP request has no window header (menu / old agent).
@@ -1909,11 +1652,20 @@ app.on("window-all-closed", () => {
 
 // Do not `await` dispose here — async before-quit handlers can stall
 // electron-updater quitAndInstall so "Restart now" appears to do nothing.
-app.on("before-quit", () => {
+let quitTasksConfirmed=false;
+app.on("before-quit", (event) => {
+  const running=allExecutionSessions().filter(record=>record.queue?.running||record.agent?.getRunState().active);
+  if(running.length&&!quitTasksConfirmed){
+    event.preventDefault();
+    const owner=BrowserWindow.getFocusedWindow(),options={type:'question',buttons:['Keep working','Stop tasks and quit'],defaultId:0,cancelId:0,message:`${running.length} chat${running.length===1?' is':'s are'} still working`,detail:'Quitting stops all agents. Your history and saved unsent messages will be kept.'};
+    const decision=owner?dialog.showMessageBoxSync(owner,options):dialog.showMessageBoxSync(options);
+    if(decision===1){quitTasksConfirmed=true;app.quit();}
+    return;
+  }
   appQuitting = true;
   writeCrashLog("app", "before-quit-handler", {
     quittingForUpdate: isQuittingForUpdate(),
   });
   closeSplash();
-  disposeAgentQuick();
 });
+app.on("will-quit", () => disposeAgentQuick());

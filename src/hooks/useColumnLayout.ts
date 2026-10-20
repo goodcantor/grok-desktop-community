@@ -307,6 +307,12 @@ export function useColumnLayout() {
     "--panel-width": `${panelPx}px`,
   } as CSSProperties;
 
+  const showPanel=useCallback((preferredWidth?:number)=>{
+    setPanelCollapsed(false);panelCollapsedRef.current=false;
+    if(preferredWidth&&panelWidthRef.current<preferredWidth){setPanelWidth(preferredWidth);panelWidthRef.current=preferredWidth;}
+    persistNow();
+  },[persistNow]);
+
   return {
     sidebarPx,
     panelPx,
@@ -316,6 +322,7 @@ export function useColumnLayout() {
     cssVars,
     toggleSidebar,
     togglePanel,
+    showPanel,
     resetSidebar,
     resetPanel,
     onSidebarResizeDown: onResizePointerDown("sidebar"),

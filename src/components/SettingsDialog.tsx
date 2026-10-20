@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {ChatPage} from './settings/ChatPage';
+import {ModelsPage} from './settings/ModelsPage';
 import { CodingDataPage } from "./settings/CodingDataPage";
 import { DiagnosticsPage } from "./settings/DiagnosticsPage";
 import { EnginePage } from "./settings/EnginePage";
@@ -23,6 +25,7 @@ import {
 export function SettingsDialog({
   open,
   onClose,
+  hideThinking,onHideThinking,
   theme,
   privacyMode,
   codingDataOptIn,
@@ -68,6 +71,7 @@ export function SettingsDialog({
   const pageRootRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const [search,setSearch]=useState('');
   const [page, setPage] = useState<SettingsPageId>("general");
 
   useEffect(() => {
@@ -153,7 +157,8 @@ export function SettingsDialog({
 
       <div className="settings-page-body">
         <nav className="settings-nav" aria-label="Settings">
-          {SETTINGS_NAV.map((group) => (
+          <input className="settings-search" aria-label="Search settings" placeholder="Search settings…" value={search} onChange={e=>setSearch(e.target.value)}/>
+          {SETTINGS_NAV.map(group=>({...group,items:group.items.filter(item=>(item.label+' '+group.label+' '+({general:'theme light dark privacy editor',chat:'draft queue enter thinking shortcuts',models:'model effort reasoning',engine:'restart compress cli',agent:'access permission sandbox outside',diagnostics:'logs report connection','coding-data':'sharing privacy',mcp:'servers connectors',plugins:'install extensions',skills:'commands manual',updates:'cli upgrade'}[item.id]||'')).toLowerCase().includes(search.toLowerCase()))})).filter(group=>group.items.length).map((group) => (
             <div className="settings-nav-group" key={group.label}>
               <div className="settings-nav-heading">{group.label}</div>
               {group.items.map((item) => (
@@ -180,6 +185,7 @@ export function SettingsDialog({
             <h3 className="settings-page-title">{PAGE_TITLES[page]}</h3>
             <SettingsPageBody
               page={page}
+              hideThinking={hideThinking} onHideThinking={onHideThinking}
               theme={theme}
               privacyMode={privacyMode}
               codingDataOptIn={codingDataOptIn}
@@ -228,6 +234,8 @@ function SettingsPageBody({
   ...props
 }: { page: SettingsPageId } & SettingsSharedProps) {
   switch (page) {
+    case "chat":return <ChatPage hideThinking={props.hideThinking} onHideThinking={props.onHideThinking}/>;
+    case "models":return <ModelsPage/>;
     case "general":
       return (
         <GeneralPage

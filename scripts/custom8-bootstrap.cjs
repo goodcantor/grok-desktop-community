@@ -1,0 +1,3 @@
+const {app}=require('electron');app.disableHardwareAcceleration();
+const fs=require('node:fs'),path=require('node:path'),{pathToFileURL}=require('node:url');
+const root=path.resolve(__dirname,'..'),profile=path.join(root,'qa','custom8-profile');fs.mkdirSync(profile,{recursive:true});app.setPath('userData',profile);app.getVersion=()=>JSON.parse(fs.readFileSync(path.join(root,'package.json'))).version;process.env.GROK_DESKTOP_MULTI_INSTANCE='1';process.env.GROK_DESKTOP_DEV_URL=pathToFileURL(path.join(root,'dist','index.html')).href;import(pathToFileURL(path.join(root,'electron','main.mjs')).href).catch(e=>{console.error(e);app.exit(1);});

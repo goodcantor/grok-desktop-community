@@ -1,21 +1,5 @@
-# Screenshots
+# Product captures
 
-Product shots for the GitHub README (theme-matched HTML mocks of the real UI).
+community-dark.png, community-light.png and community-questions.png capture the actual Community renderer with explicit synthetic demo data. Regenerate with `npm run build` and `node scripts/demo-capture.mjs`. The isolated profile and native home are under ignored qa/. The agent boundary is simulated; the screenshots are not claims of a model-generated answer.
 
-| File | Use |
-|------|-----|
-| `main.png` | Hero — full app (sidebar, chat, tools, files, Preview button) |
-| `welcome.png` | Sign-in / welcome |
-| `approvals.png` | Tool permission card |
-| `preview.png` | Detachable Preview window (address bar + guest page) |
-| `worktree.png` | Same-checkout prompt — switch, reuse, or create a Grok worktree |
-
-## Regenerate
-
-Requires Brave, Chrome, or Edge (macOS or Windows):
-
-```bash
-node docs/screenshots/render.mjs
-```
-
-Edit the `mock-*.html` sources if the UI changes, then re-render.
+Earlier mock-* files and their images document the upstream predecessor and are not used as Community product screenshots.

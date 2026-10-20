@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible Community problem
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Never include tokens, auth.json, private conversations or indexed history. Security issues use private vulnerability reporting."
+  - type: input
+    id: version
+    attributes:
+      label: Community and Grok CLI versions
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS, architecture and installation source
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps, expected result and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Reviewed, redacted diagnostics (optional)

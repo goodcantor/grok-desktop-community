@@ -90,6 +90,8 @@ export function applyUsageUpdate(prev, params) {
   }
 
   if (kind === "turn_completed" || kind === "turn_complete") {
+    const eventKey=params?._meta?.eventId || update.prompt_id || update.promptId;
+    if(eventKey && (prev._seenUsage||[]).includes(eventKey)) return prev;
     const usage = update.usage || update.Usage || {};
     const input = num(usage.inputTokens ?? usage.input_tokens);
     const output = num(usage.outputTokens ?? usage.output_tokens);
@@ -113,6 +115,7 @@ export function applyUsageUpdate(prev, params) {
       occupancyFromTurnUsage(usage);
 
     return {
+      _seenUsage: eventKey ? [...(prev._seenUsage||[]),eventKey] : (prev._seenUsage||[]),
       turns: prev.turns + 1,
       inputTokens: prev.inputTokens + input,
       outputTokens: prev.outputTokens + output,

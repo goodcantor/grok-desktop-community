@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { PluginInfo } from "../../vite-env";
+import type { PluginInfo } from "../../types/desktop";
 
 function pluginRowDetail(p: PluginInfo): string {
   const bits = [

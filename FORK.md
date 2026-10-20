@@ -1,35 +1,7 @@
-# How this relates to Grok Build
+# Provenance and architecture boundary
 
-## Layers
+Community derives from liaan/grok-desktop v1.4.7 (1218f6edf3791c0f39820e8c60563d81c1697a0a), followed by the personal Custom improvements and public-release hardening. Upstream Git history and MIT copyright remain intact.
 
-| Layer | What it is | Where it lives |
-|-------|------------|----------------|
-| Agent (models, tools, skills, MCP, auth) | Official Grok Build CLI | Installed `grok` binary + `~/.grok` |
-| Desktop GUI | This project | Electron + React ACP client |
+User → Community Electron/React shell → official grok agent stdio over ACP → native GROK_HOME.
 
-Grok Build already supports embedding via:
-
-```bash
-grok agent stdio
-```
-
-This app is a graphical client on that interface. It does not replace or patch the agent monorepo UI.
-
-## Optional: local agent source
-
-Useful if you want to read ACP behaviour or rebuild the CLI yourself:
-
-```bash
-git clone https://github.com/xai-org/grok-build.git
-# place next to this repo, e.g. ../grok-build
-```
-
-You do **not** need a local clone to run Grok Desktop if the official `grok` binary is installed.
-
-## Why a separate repo?
-
-1. The agent project is maintained separately; this is a product shell around ACP.
-2. Replacing the terminal UI inside that tree is a large effort; ACP is the supported boundary for alternate clients.
-3. Keeps this UI’s license (**MIT**) clean of vendored agent source.
-
-**GUI product layer · reuse the agent process.**
+The desktop does not implement or bundle models, agent tools, skills, an alternate OAuth token store or an authoritative conversation database. Native session files remain shared; UI preferences and unsent recovery state belong to Community. Unsupported agent features are not simulated as working product controls.

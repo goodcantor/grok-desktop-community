@@ -8,7 +8,7 @@ export const PREVIEW_MCP_TOOLS = [
   {
     name: "preview_open",
     description:
-      "Open Grok Desktop's detachable Preview window (the user can see it) and navigate to a URL. Returns a text snapshot of the page — read that. Do NOT use cloakbrowser, playwright, puppeteer, docker browsers, web_fetch, or curl. Qualified name: desktop-preview__preview_open.",
+      "Open Grok Desktop's Browser panel beside the chat (the user can see it) and navigate to a URL. Returns a text snapshot of the page — read that. Do NOT use cloakbrowser, playwright, puppeteer, docker browsers, web_fetch, or curl. Qualified name: desktop-preview__preview_open.",
     inputSchema: {
       type: "object",
       properties: {
@@ -173,7 +173,7 @@ export function previewOwnerIdFromHeaders(headers) {
  * @param {unknown} [windowId]
  * @returns {object[]}
  */
-export function previewMcpHttpServers(api, windowId) {
+export function previewMcpHttpServers(api, windowId,executionId) {
   const url = String(api?.url || "").replace(/\/$/, "");
   const token = String(api?.token || "");
   if (!url || !token) return [];
@@ -185,6 +185,7 @@ export function previewMcpHttpServers(api, windowId) {
       headers: [
         { name: "Authorization", value: `Bearer ${token}` },
         ...previewOwnerHeaders(windowId),
+        ...(executionId?[{name:'X-Grok-Desktop-Execution',value:String(executionId)}]:[]),
       ],
     },
   ];

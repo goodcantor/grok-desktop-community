@@ -3,7 +3,7 @@ import {
   AUTO_COMPACT_OPTIONS,
   type AutoCompactAt,
 } from "../../../shared/auto-compact.mjs";
-import type { GrokEngineInfo, GrokUpdateCheck } from "../../vite-env";
+import type { GrokEngineInfo, GrokUpdateCheck } from "../../types/desktop";
 
 export function EnginePage({
   grokBinary,

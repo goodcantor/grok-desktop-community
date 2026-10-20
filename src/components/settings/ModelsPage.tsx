@@ -1,0 +1,6 @@
+import {useEffect,useState} from 'react';
+export function ModelsPage() {
+  const [effort,setEffort]=useState('high'),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  useEffect(()=>{let active=true;void window.grokDesktop.getInfo().then(info=>{if(active)setEffort(info.defaultReasoningEffort||info.reasoningEffort);}).catch(e=>setError(String(e)));return()=>{active=false;};},[]);
+  return <section className="settings-section"><label className="settings-row"><div className="settings-row-text"><span className="settings-label">Default reasoning</span><span className="settings-desc">Used for new chats and new engine sessions. Existing windows keep their current choice. Pick a session’s model and supported reasoning beside the message field.</span></div><select aria-label="Default reasoning" className="settings-select" value={effort} disabled={busy} onChange={async e=>{setBusy(true);setError('');try{setEffort(await window.grokDesktop.setDefaultReasoning(e.target.value));}catch(error){setError(String(error));}finally{setBusy(false);}}}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra High</option></select></label>{error&&<p role="alert">{error}</p>}</section>;
+}

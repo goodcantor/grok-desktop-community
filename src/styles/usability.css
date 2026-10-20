@@ -1,0 +1,23 @@
+.shortcuts-dialog{width:min(650px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:18px 20px;background:var(--bg);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);font-size:13px}
+.shortcuts-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}.shortcuts-dialog h2{font-size:18px;font-weight:600;margin:0}
+.shortcuts-dialog .history-search-input{width:100%;margin:0}
+.shortcuts-dialog dl{margin:10px 0 0}.shortcuts-dialog dl>div{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--border-soft)}
+.shortcuts-dialog dt{font-weight:500;min-width:0}.shortcuts-dialog dt small{display:block;color:var(--text-muted);font-size:12px;line-height:1.5;font-weight:400;margin-top:3px}.shortcuts-dialog dd{margin:0;flex-shrink:0}
+.shortcuts-dialog kbd{font:11px var(--mono);color:var(--text-muted);border:1px solid var(--border);border-radius:5px;background:var(--bg-elevated);padding:4px 6px}
+.notification-settings .settings-label{font-weight:500}
+.terminal-tab{display:flex;align-items:stretch;flex-shrink:0;max-width:230px;border-radius:6px;overflow:hidden}.terminal-tab[aria-current=true]{background:var(--btn-hover-bg)}
+.terminal-tab>button{display:flex;align-items:center;gap:5px;white-space:nowrap;border:0;background:transparent;color:var(--text-muted);padding:6px;font:inherit;font-size:12px;min-width:0}
+.terminal-tab>button:first-child{overflow:hidden;text-overflow:ellipsis;display:block}.terminal-tab>button:last-child{flex:none;min-width:28px;justify-content:center}.terminal-tab>button:hover{background:var(--btn-hover-bg);color:var(--text)}
+.terminal-empty{display:flex;align-items:center;justify-content:center;gap:8px;height:100%;color:var(--text-muted);font-size:12px}
+.terminal-dock{flex:0 1 auto;min-height:100px;max-height:40dvh}
+@media(max-height:650px){
+  .main:has(.terminal-dock:not([hidden])) .topbar{min-height:44px;padding-top:4px;padding-bottom:4px}
+  .main:has(.terminal-dock:not([hidden])) .history-navigation{padding-top:2px;padding-bottom:2px}
+  .main:has(.terminal-dock:not([hidden])) .status-bar{min-height:26px;padding-top:0;padding-bottom:0}
+  .terminal-dock>header{min-height:32px;padding-top:2px;padding-bottom:2px}.terminal-search{padding-bottom:2px}
+}
+@media(max-width:540px){.shortcuts-dialog dl>div{align-items:flex-start;flex-direction:column;gap:8px}.shortcuts-dialog{padding:14px}}
+@media(max-height:500px){
+  .main:has(.terminal-dock:not([hidden])) .timeline{padding-top:0;padding-bottom:0}
+  .main:has(.terminal-dock:not([hidden]))>.status-bar{display:none}
+}

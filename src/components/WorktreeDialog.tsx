@@ -1,6 +1,6 @@
 import { basen } from "../lib/path-utils";
 import { usePrivacy } from "../lib/privacy-context";
-import type { CheckoutConflict } from "../vite-env";
+import type { CheckoutConflict } from "../types/desktop";
 
 export type WorktreeDialogState = {
   kind: "conflict";

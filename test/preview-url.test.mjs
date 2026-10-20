@@ -189,7 +189,7 @@ test("capture delivery is in usePromptDelivery, not App", () => {
   assert.doesNotMatch(app, /pendingImageFromBase64/);
   assert.match(hook, /preview:viewport-capture/);
   assert.match(hook, /previewCaptureToSubmit/);
-  assert.match(hook, /submitFromComposer\(parsed\.submit\)/);
+  assert.match(hook, /submitFromComposer\(\{\s*\.\.\.parsed\.submit/);
   assert.match(capture, /mode: "auto"/);
   assert.match(capture, /imageQuality: "compact"/);
   assert.match(preload, /"preview:viewport-capture"/);
@@ -206,7 +206,7 @@ test("capture delivery is in usePromptDelivery, not App", () => {
     "utf8",
   );
   assert.match(mcp, /X-Grok-Desktop-Window/);
-  assert.match(acp, /desktopPreviewMcpServers\(this\.windowId\)/);
+  assert.match(acp, /desktopPreviewMcpServers\(this\.windowId,this\.previewExecutionId\)/);
   assert.match(chrome, /Handed to chat/);
   assert.doesNotMatch(chrome, /Sent to chat ·/);
 });

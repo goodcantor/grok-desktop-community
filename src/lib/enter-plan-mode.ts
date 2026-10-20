@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { ComposerSubmit } from "../components/Composer";
-import type { TimelineItem } from "../vite-env";
+import type { ComposerSubmit } from "../types/prompt";
+import type { TimelineItem } from "../types/desktop";
 import { appendUserMessage } from "./timeline";
 import {
   ALREADY_IN_PLAN_NOTICE,

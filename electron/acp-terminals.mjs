@@ -27,6 +27,8 @@ export {
   resolveSpawnPlan,
 } from "./terminal-spawn.mjs";
 import { planSandboxedSpawn } from "./terminal-sandbox.mjs";
+import {directWindowsExecutable} from './windows-process-spawn.mjs';
+import {terminalTimeoutMs} from './terminal-timeout.mjs';
 import { applyNonInteractiveToolEnv } from "./tool-git-env.mjs";
 import { debugLog } from "./debug-log.mjs";
 
@@ -320,12 +322,13 @@ export class AcpTerminalManager extends EventEmitter {
           }
         };
       }
-      return spawn(plan.file, plan.fileArgs, {
+      const executable=directWindowsExecutable(plan);
+      return spawn(executable.file, executable.fileArgs, {
         cwd: plan.cwd,
         env: plan.env,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
-        shell: plan.shell,
+        shell: executable.shell,
         detached: false,
       });
     };
@@ -351,11 +354,9 @@ export class AcpTerminalManager extends EventEmitter {
     term.pid = proc.pid ?? null;
     this.terminals.set(id, term);
 
-    // Safety net: Docker/WSL tool shells that never exit leave UI on in_progress.
-    // Default 15 minutes; override with GROK_DESKTOP_TERMINAL_TIMEOUT_MS (0 = off).
-    const timeoutMs = Number(
-      process.env.GROK_DESKTOP_TERMINAL_TIMEOUT_MS ?? 15 * 60_000,
-    );
+    // A host dev server or long build may legitimately outlive 15 minutes.
+    // Session cancellation/disposal still kills its process tree.
+    const timeoutMs = terminalTimeoutMs(term.sandboxBackend);
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
       term._timeout = setTimeout(() => {
         if (term.exited) return;

@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import {bashPath} from "../electron/terminal-spawn.mjs";
 import {
   maybeMaterializeScriptSpawn,
   normalizeTerminalSpawn,
@@ -130,7 +131,7 @@ test("normalizeTerminalSpawn never uses multi-word exec path", () => {
     `bash -c "echo 'x'"`,
   ]) {
     const r = normalizeTerminalSpawn(packed, []);
-    assert.ok(!/\s/.test(r.execCommand), `exec has space: ${r.execCommand}`);
+    assert.equal(r.execCommand,bashPath());
   }
 });
 
@@ -155,7 +156,7 @@ test("normalizeTerminalSpawn multi-line freeform stays bash -lc body (not exec p
   assert.match(String(r.execCommand), /bash/i);
   assert.ok(r.args[0] === "-lc" || r.args[0] === "-c");
   assert.ok(String(r.args[1]).includes("LINE2"));
-  assert.ok(!/\s/.test(r.execCommand));
+  assert.equal(r.execCommand,bashPath());
 });
 
 test("normalizeTerminalSpawn bash + multi-line arg without -c forces -lc", () => {

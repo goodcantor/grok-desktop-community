@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AuthStatus, BackboneSummary, LoginProgress } from "../vite-env";
+import type { AuthStatus, BackboneSummary, LoginProgress } from "../types/desktop";
 
 const BINARY_POLL_MS = 2000;
 const BINARY_POLL_FOR_MS = 60_000;

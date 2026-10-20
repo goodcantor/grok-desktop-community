@@ -2,7 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useRef,
+  useRef,useState,
   type RefObject,
 } from "react";
 
@@ -28,10 +28,15 @@ export function useStickToBottom(
   contentKey: string | number,
   /** Project/session switch — re-pin and rebind the listener. */
   resetKey: string | number,
+  suspended=false,
 ): {
   /** Call when the user intentionally wants the live tail (e.g. send). */
   pinToBottom: () => void;
+  atLatest:boolean;
 } {
+  const [atLatest,setAtLatest]=useState(true);
+  const positionKey='grok-reading:'+resetKey;
+  const restoreRef=useRef<{top:number;pinned:boolean}|null>(null);
   const stickRef = useRef(true);
   /**
    * Nested stick writes during fast streams: count (not bool) so an early
@@ -53,7 +58,7 @@ export function useStickToBottom(
   }, [scrollerRef]);
 
   const pinToBottom = useCallback(() => {
-    stickRef.current = true;
+    stickRef.current = true;setAtLatest(true);restoreRef.current=null;
     scrollToBottom();
   }, [scrollToBottom]);
 
@@ -62,25 +67,30 @@ export function useStickToBottom(
     if (!el) return;
 
     const onScroll = () => {
-      if (ignoreScrollRef.current > 0) return;
-      stickRef.current = isScrollerNearBottom(el);
+      if (ignoreScrollRef.current > 0||suspended) return;
+      stickRef.current = isScrollerNearBottom(el);setAtLatest(stickRef.current);
+      try{sessionStorage.setItem(positionKey,JSON.stringify({top:el.scrollTop,pinned:stickRef.current}));}catch{}
     };
 
     el.addEventListener("scroll", onScroll, { passive: true });
-    stickRef.current = true;
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [resetKey, scrollerRef]);
+    const onContentResize=()=>{if(stickRef.current&&!suspended)scrollToBottom();};
+    window.addEventListener('grok:transcript-resize',onContentResize);
+    try{restoreRef.current=JSON.parse(sessionStorage.getItem(positionKey)||'null');}catch{restoreRef.current=null;}
+    stickRef.current=restoreRef.current?.pinned??true;setAtLatest(stickRef.current);
+    return()=>{el.removeEventListener('scroll',onScroll);window.removeEventListener('grok:transcript-resize',onContentResize);};
+  }, [resetKey, scrollerRef,suspended]);
 
   // Stick before paint so fast chunks never leave a "not at bottom" frame.
   useLayoutEffect(() => {
     const el = scrollerRef.current;
-    if (!el) return;
+    if (!el||suspended) return;
+    if(restoreRef.current&&!restoreRef.current.pinned){if(el.scrollHeight>el.clientHeight){el.scrollTop=Math.min(restoreRef.current.top,el.scrollHeight-el.clientHeight);restoreRef.current=null;}return;}
     if (!stickRef.current) {
       if (isScrollerNearBottom(el)) stickRef.current = true;
       else return;
     }
     scrollToBottom();
-  }, [contentKey, scrollToBottom, scrollerRef]);
+  }, [contentKey, scrollToBottom, scrollerRef,suspended]);
 
-  return { pinToBottom };
+  return { pinToBottom,atLatest };
 }

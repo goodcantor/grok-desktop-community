@@ -1,14 +1,13 @@
 import {
-  useCallback,
+  useCallback,useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
 } from "react";
 import { isAuthError, isMissingBinaryError, type ConnState } from "../lib/conn";
 import { isCheckoutConflict } from "../lib/checkout";
-import type { CheckoutConflict, OpenProjectResult } from "../vite-env";
+import type { CheckoutConflict, OpenProjectResult } from "../types/desktop";
 import { basen } from "../lib/path-utils";
-import { uid } from "../lib/timeline";
 import type {
   AppInfo,
   AuthStatus,
@@ -16,7 +15,7 @@ import type {
   BackboneSummary,
   SessionSummary,
   TimelineItem,
-} from "../vite-env";
+} from "../types/desktop";
 import type { SlashCommand } from "../lib/commands";
 
 /**
@@ -61,11 +60,13 @@ export function useProjectSession(opts: {
   /** Leave the project and return to AuthGate install when grok is missing. */
   onMissingBinary?: () => void | Promise<void>;
   /** Same checkout already open in another window — prompt for a worktree. */
+  defaultWorkspace?:string;currentSessionId?:string|null;
   onCheckoutConflict?: (conflict: CheckoutConflict, cwd: string) => void;
 }) {
   const {
     auth,
     project,
+    currentSessionId,
     busyRef,
     openingRef,
     promptQueueRef,
@@ -99,6 +100,7 @@ export function useProjectSession(opts: {
     onCheckoutConflict,
   } = opts;
 
+  const operation=useRef(0);
   const applyOpenResult = useCallback(
     async (
       res: OpenProjectResult & {
@@ -106,8 +108,12 @@ export function useProjectSession(opts: {
         backgroundTasks?: import("../lib/background-tasks").BackgroundTask[];
         usage?: import("../lib/usage").SessionUsage | null;
       },
-      openOpts?: { note?: string },
+      openOpts?: { note?: string;preserveQueue?:boolean },
     ) => {
+      const expected=operation.current;
+      // Reset the outgoing mirror before changing the key. Queue hydration for
+      // the destination can finish while the permission/gate IPC below awaits.
+      if(!openOpts?.preserveQueue){clearPromptQueue();promptQueueRef.current = [];sendNowRef.current = null;}
       setProject(res.cwd);
       setSessionId(res.sessionId);
       setSessions(res.sessions || []);
@@ -115,64 +121,27 @@ export function useProjectSession(opts: {
       setModelName(res.modelName || null);
       setAvailableModels(res.availableModels || []);
       clearSessionScoped();
-      await revokeWritesThisSession();
+      setItems((res.history||[]) as TimelineItem[]);
+      if(!res.scope || !res.resumed)await revokeWritesThisSession();
       // While openingRef is true, live usage is ignored — disk replace is safe.
       hydrateBackgroundTasks(res.backgroundTasks || []);
       hydrateSessionUsage(res.usage);
       hydrateSessionMode?.(res.sessionMode ?? null);
       // Await so we do not mark online with a stale empty mirror.
       await syncAgentGatesFromMain();
-      setAgentCommands([]);
+      if(expected!==operation.current)return;
       // Composer draft/slash menu remounts via key=sessionId — no reset needed.
-      clearPromptQueue();
-      promptQueueRef.current = [];
-      sendNowRef.current = null;
 
-      const history = (res.history || []) as TimelineItem[];
       if (res.backbone) setBackbone(res.backbone);
-      const bb = res.backbone ?? (await refreshBackbone(res.cwd));
-      const skillN = bb.ok ? bb.skills.length : "?";
-      const mcpN = bb.ok ? bb.mcpServers.length : "?";
-      const pluginN = bb.ok ? bb.plugins.length : "?";
-      const runningBg = (res.backgroundTasks || []).filter(
-        (t) => t.status === "running",
-      ).length;
-      const modelLabel = res.modelName
-        ? res.modelId
-          ? `${res.modelName} (${res.modelId})`
-          : res.modelName
-        : res.modelId || null;
-      const banner: TimelineItem = {
-        id: uid("sys"),
-        kind: "system",
-        text: [
-          openOpts?.note ||
-            (res.resumed
-              ? "Resumed Grok session (same store as CLI ~/.grok/sessions)"
-              : "New Grok session (same store as CLI)"),
-          res.warning ? `Note: ${res.warning}` : null,
-          `Project: ${res.cwd}`,
-          `Session: ${res.sessionId}`,
-          modelLabel ? `Model: ${modelLabel}` : null,
-          history.length
-            ? `History: ${history.length} message(s) restored`
-            : "History: empty (fresh chat)",
-          runningBg
-            ? `Background tasks: ${runningBg} still running (see Tasks dock)`
-            : null,
-          `Binary: ${res.grokBinary}`,
-          `Skills: ${skillN} · MCP: ${mcpN} · Plugins: ${pluginN}`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        at: Date.now(),
-      };
-      setItems([banner, ...history]);
-      setConn("online");
+      if(!res.backbone)void refreshBackbone(res.cwd).catch(()=>{});
+
+      busyRef.current=Boolean(res.runState?.active);
+      setConn(res.runState?.active?"busy":"online");
       setOpeningLabel(null);
       setError(res.warning || null);
 
       const i = await window.grokDesktop.getInfo();
+      if(expected!==operation.current)return;
       setInfo(i);
       setAuth(i.auth);
       hydrateFromInfo(i);
@@ -222,32 +191,36 @@ export function useProjectSession(opts: {
         setError("Sign in to Grok before opening a project.");
         return;
       }
-      if (busyRef.current || openingRef.current) {
+      if (openingRef.current) {
         setError("Wait for the current turn or open to finish.");
         return;
       }
 
       openingRef.current = true;
+      const expected=++operation.current;
       const prevConn = project ? "online" : "idle";
       setConn("connecting");
       setOpeningLabel(basen(cwd));
       setError(null);
       try {
+        setAgentCommands([]);
         const res = await window.grokDesktop.openProject(cwd, {
           mode: openOpts?.mode || "continue",
           sessionId: openOpts?.sessionId,
           allowSameCheckout: openOpts?.allowSameCheckout,
         });
+        if(expected!==operation.current)return;
         if (isCheckoutConflict(res)) {
           setOpeningLabel(null);
           setConn(prevConn);
           onCheckoutConflict?.(res, cwd);
           return;
         }
-        setItems([]);
         clearSessionScoped();
         await applyOpenResult(res);
+        return true;
       } catch (e: unknown) {
+        if(expected!==operation.current)return;
         const msg = e instanceof Error ? e.message : String(e);
         setOpeningLabel(null);
         if (isMissingBinaryError(msg)) {
@@ -262,7 +235,7 @@ export function useProjectSession(opts: {
           }
         }
       } finally {
-        openingRef.current = false;
+        if(expected===operation.current)openingRef.current = false;
       }
     },
     [
@@ -290,31 +263,34 @@ export function useProjectSession(opts: {
         setError("Sign in to Grok first.");
         return;
       }
-      if (busyRef.current) {
-        setError("Stop the current turn before switching chats.");
-        return;
-      }
       if (openingRef.current) return;
 
       openingRef.current = true;
+      const expected=++operation.current;
       setConn("connecting");
       setOpeningLabel(sessionOpts.mode === "new" ? "New chat" : "Resuming…");
+      // Stage input under the pending-draft key so it migrates into the new
+      // session instead of staying in the previous chat's composer.
+      setSessionId(null);
       setError(null);
-      setItems([]);
       clearSessionScoped();
       try {
+        setAgentCommands([]);
         const res = await window.grokDesktop.openSession({
           cwd: project,
           sessionId: sessionOpts.sessionId,
           mode: sessionOpts.mode || "resume",
         });
-        await applyOpenResult(res, {
+        if(expected!==operation.current)return;
+      await applyOpenResult(res, {
           note:
             sessionOpts.mode === "new"
               ? "Started a new chat (CLI /new)"
               : "Resumed previous chat (CLI /resume)",
         });
       } catch (e: unknown) {
+      if(expected!==operation.current)return;
+        setSessionId(currentSessionId||null);
         const msg = e instanceof Error ? e.message : String(e);
         setOpeningLabel(null);
         if (isMissingBinaryError(msg)) {
@@ -326,11 +302,11 @@ export function useProjectSession(opts: {
           setError(msg);
         }
       } finally {
-        openingRef.current = false;
+        if(expected===operation.current)openingRef.current = false;
       }
     },
     [
-      auth,
+      auth,currentSessionId,setSessionId,
       applyOpenResult,
       busyRef,
       clearSessionScoped,
@@ -358,6 +334,7 @@ export function useProjectSession(opts: {
     if (openingRef.current) return;
 
     openingRef.current = true;
+    const expected=++operation.current;
     busyRef.current = false;
     clearPromptQueue();
     setConn("connecting");
@@ -365,12 +342,14 @@ export function useProjectSession(opts: {
     setError(null);
     try {
       const res = await window.grokDesktop.restartAgent();
+      if(expected!==operation.current)return;
       await applyOpenResult(res, {
         note: res.resumed
           ? "Restarted Grok agent (same session)"
           : "Restarted Grok agent (new session)",
       });
     } catch (e: unknown) {
+      if(expected!==operation.current)return;
       const msg = e instanceof Error ? e.message : String(e);
       setOpeningLabel(null);
       if (isMissingBinaryError(msg)) {
@@ -385,7 +364,7 @@ export function useProjectSession(opts: {
         }
       }
     } finally {
-      openingRef.current = false;
+      if(expected===operation.current)openingRef.current = false;
     }
   }, [
     auth,
@@ -401,7 +380,12 @@ export function useProjectSession(opts: {
     setOpeningLabel,
   ]);
 
-  return { openProject, openSession, restartAgent, isAuthError };
+  const recoverConnection=async(_restart=false)=>{
+    const cwd=project||opts.defaultWorkspace;if(!cwd)return;
+    const expected=++operation.current;openingRef.current=true;busyRef.current=false;setConn('connecting');setError(null);setOpeningLabel('Reconnecting…');
+    try{const result=await window.grokDesktop.recoverProject(cwd,opts.currentSessionId||undefined);if(expected!==operation.current)return;await applyOpenResult(result,{preserveQueue:true});}catch(error){if(expected===operation.current){setConn('error');setError(error instanceof Error?error.message:String(error));}}finally{if(expected===operation.current){openingRef.current=false;setOpeningLabel(null);}}
+  };
+  return { openProject, openSession, restartAgent,recoverConnection, isAuthError };
 }
 
 export { isAuthError };

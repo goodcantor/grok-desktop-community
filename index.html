@@ -10,17 +10,18 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss: http://127.0.0.1:* http://localhost:*;"
     />
-    <title>Grok Desktop</title>
+    <title>Grok Desktop Community</title>
     <!-- External script only; CSP script-src 'self' blocks inline scripts -->
     <script src="./theme-boot.js"></script>
+    <link rel="stylesheet" href="./shared/theme-palette.css" />
     <style>
       html, body, #root { height: 100%; margin: 0; }
       body {
-        background: #0c0c0f;
-        color: #f2f2f5;
+        background: var(--bg, #171819);
+        color: var(--text, #ececec);
         font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
       }
-      [data-theme="light"] body { background: #f3f3f7; color: #14141c; }
+      [data-theme="light"] body { background: var(--bg, #fff); color: var(--text, #232426); }
       /* Overlay for reloads / fail-safe reveal. First launch uses a native splash. */
       .boot-splash {
         position: fixed;
@@ -28,15 +29,15 @@
         z-index: 9999;
         display: grid;
         place-items: center;
-        background: #0c0c0f;
-        color: #f2f2f5;
+        background: var(--bg, #171819);
+        color: var(--text, #ececec);
         text-align: center;
         user-select: none;
         transition: opacity 0.28s ease;
       }
       [data-theme="light"] .boot-splash {
-        background: #f3f3f7;
-        color: #14141c;
+        background: var(--bg, #fff);
+        color: var(--text, #232426);
       }
       .boot-splash--done {
         opacity: 0;
@@ -49,8 +50,8 @@
         font-size: 18px;
         font-weight: 650;
       }
-      .boot-splash span { color: #9a9aab; font-size: 13px; }
-      [data-theme="light"] .boot-splash span { color: #5a5a6e; }
+      .boot-splash span { color: var(--text-muted, #a0a1a4); font-size: 13px; }
+      [data-theme="light"] .boot-splash span { color: var(--text-muted, #66696e); }
       .boot-mark {
         width: 48px;
         height: 48px;
@@ -61,8 +62,8 @@
         width: 22px;
         height: 22px;
         margin: 16px auto 0;
-        border: 2.5px solid rgba(167, 139, 250, 0.25);
-        border-top-color: #a78bfa;
+        border: 2.5px solid var(--boot-ring, #414447);
+        border-top-color: var(--accent, #ececec);
         border-radius: 50%;
         animation: boot-spin 0.75s linear infinite;
       }
@@ -115,7 +116,7 @@
           <circle cx="16" cy="15" r="0.85" fill="#FFFFFF" />
           <circle cx="26" cy="16" r="1.15" fill="#FFFFFF" />
         </svg>
-        <strong>Grok Desktop</strong>
+        <strong>Grok Desktop Community</strong>
         <div><span>Loading the app…</span></div>
         <div class="boot-spin" aria-hidden="true"></div>
       </div>

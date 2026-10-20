@@ -1,30 +1,42 @@
 {
-  "name": "grok-desktop",
-  "version": "1.4.7",
-  "description": "Desktop GUI for the Grok Build coding agent (Electron + ACP)",
+  "name": "grok-desktop-community",
+  "version": "0.1.0-beta.1",
+  "description": "An independent community desktop client for Grok Build",
   "main": "electron/main.mjs",
   "type": "module",
-  "author": "Karman de Lange",
+  "author": "goodcantor and contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/liaan/grok-desktop.git"
+    "url": "https://github.com/goodcantor/grok-desktop-community.git"
   },
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "vite build",
     "start": "electron .",
     "preview": "npm run build && electron .",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:linux": "npm run build && electron-builder --linux",
+    "pack": "npm run build && node scripts/package.mjs --dir",
+    "dist": "npm run build && node scripts/package.mjs",
+    "dist:win": "npm run build && node scripts/package.mjs --win",
+    "dist:mac": "npm run build && node scripts/package.mjs --mac",
+    "dist:linux": "npm run build && node scripts/package.mjs --linux",
     "test": "node --test test/**/*.test.mjs",
-    "test:acp": "node --test test/acp-rpc.test.mjs"
+    "test:acp": "node --test test/acp-rpc.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:native": "node scripts/harness-native-smoke.mjs",
+    "test:package": "node scripts/community-package-smoke.mjs",
+    "release:verify": "node scripts/verify-release.mjs"
   },
   "dependencies": {
+    "@floating-ui/react": "0.27.19",
+    "@radix-ui/react-collapsible": "1.2.1",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/xterm": "6.0.0",
     "electron-updater": "^6.6.2",
+    "lucide-react": "1.57.0",
+    "minisearch": "7.2.0",
+    "node-pty": "1.1.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
@@ -34,16 +46,17 @@
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
-    "concurrently": "^9.1.2",
-    "electron": "^35.2.1",
-    "electron-builder": "^26.0.12",
+    "concurrently": "10.0.6",
+    "electron": "44.9.1",
+    "electron-builder": "26.15.3",
+    "playwright-core": "1.63.0",
     "typescript": "^5.8.3",
     "vite": "^6.3.3",
     "wait-on": "^8.0.3"
   },
   "build": {
-    "appId": "com.karman.grok-desktop",
-    "productName": "Grok Desktop",
+    "appId": "io.github.goodcantor.grokdesktopcommunity",
+    "productName": "Grok Desktop Community",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -55,12 +68,6 @@
       "package.json"
     ],
     "asar": true,
-    "publish": {
-      "provider": "github",
-      "owner": "liaan",
-      "repo": "grok-desktop"
-    },
-    "afterPack": "./scripts/afterPack.cjs",
     "win": {
       "target": [
         {
@@ -70,7 +77,7 @@
           ]
         }
       ],
-      "artifactName": "GrokDesktop-${version}-Windows-Setup.${ext}"
+      "artifactName": "GrokDesktopCommunity-${version}-Windows-${arch}-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -97,10 +104,11 @@
         }
       ],
       "category": "public.app-category.developer-tools",
-      "hardenedRuntime": false,
-      "gatekeeperAssess": false,
-      "identity": null,
-      "artifactName": "GrokDesktop-${version}-Mac-${arch}.${ext}"
+      "hardenedRuntime": true,
+      "artifactName": "GrokDesktopCommunity-${version}-macOS-${arch}.${ext}",
+      "notarize": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist"
     },
     "dmg": {
       "writeUpdateInfo": true
@@ -115,7 +123,26 @@
         }
       ],
       "category": "Development",
-      "artifactName": "GrokDesktop-${version}-Linux-x64.${ext}"
-    }
+      "artifactName": "GrokDesktopCommunity-${version}-Linux-${arch}.${ext}"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "goodcantor",
+        "repo": "grok-desktop-community",
+        "releaseType": "draft"
+      }
+    ]
+  },
+  "homepage": "https://github.com/goodcantor/grok-desktop-community#readme",
+  "bugs": {
+    "url": "https://github.com/goodcantor/grok-desktop-community/issues"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }

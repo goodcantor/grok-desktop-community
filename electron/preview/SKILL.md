@@ -1,4 +1,5 @@
 ---
+disable-model-invocation: true
 name: desktop-preview
 description: >
   Open Grok Desktop's in-app Preview window so the user can see a site.

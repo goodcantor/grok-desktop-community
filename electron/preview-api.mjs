@@ -86,7 +86,7 @@ export async function dispatchPreviewApi(req) {
     snapshotPreview,
     snapshotPreviewNetwork,
     VIEWPORTS,
-  } = await previewWindowApi();
+  } = req.executionId ? await (await import("./execution-preview.mjs")).apiForStampedExecution(req.owner,req.executionId) : await previewWindowApi();
 
   // Header owner always claims. Focused-window fallback is only for open/navigate
   // when MCP did not stamp a window — later snapshot/click must not steal.
@@ -222,7 +222,7 @@ async function handleMcpHttp(req, res, rawBody) {
     const { windowById } = await previewWindowApi();
     owner = windowById(ownerId);
   }
-  const reply = await handlePreviewMcpMessage(msg, { owner, ownerStamped });
+  const reply = await handlePreviewMcpMessage(msg, { owner, ownerStamped,executionId:req.headers['x-grok-desktop-execution'] });
   if (!reply) {
     res.writeHead(202);
     res.end();

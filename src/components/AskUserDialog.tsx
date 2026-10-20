@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type AskUserQuestion = {
   id?: string;
@@ -24,7 +24,9 @@ export type AskUserRequest = {
 export function AskUserDialog({
   request,
   onRespond,
+  inline = false,
 }: {
+  inline?: boolean;
   request: AskUserRequest | null;
   onRespond: (
     reqId: string,
@@ -42,13 +44,16 @@ export function AskUserDialog({
     setAnswers({});
   }, [request?.reqId]);
 
+  const [custom,setCustom]=useState<Record<string,string>>({});
+  const submitting=useRef(false);
+  useEffect(()=>{setCustom({});submitting.current=false;},[request?.reqId]);
   const allAnswered = useMemo(() => {
     if (!questions.length) return false;
     return questions.every((q, i) => {
       const key = String(q.id ?? i);
-      return (answers[key] || []).length > 0;
+      return (answers[key] || []).length > 0 || Boolean(custom[key]?.trim());
     });
-  }, [questions, answers]);
+  }, [questions, answers, custom]);
 
   if (!request) return null;
 
@@ -66,29 +71,31 @@ export function AskUserDialog({
   };
 
   const submit = () => {
+    if(submitting.current)return;submitting.current=true;
     const map: Record<string, string[]> = {};
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const key = String(q.id ?? i);
       const selected = answers[key] || [];
-      if (!selected.length) continue;
+      if (!selected.length && !custom[key]?.trim()) continue;
       const opts = Array.isArray(q.options) ? q.options : [];
       const labels = selected.map((id) => {
         const opt = opts.find((candidate, j) => String(candidate.id ?? j) === id);
         return String(opt?.label || id);
       });
       const questionText = String(q.question || "").trim() || key;
-      map[questionText] = labels;
+      const free=custom[key]?.trim();
+      map[questionText] = free ? (Boolean(q.multiSelect??q.multi_select)?[...labels,free]:[free]) : labels;
     }
     onRespond(request.reqId, { type: "answered", answers: map });
   };
 
   return (
-    <div className="modal-backdrop" role="presentation" data-modal-layer="overlay">
+    <div className={inline ? "inline-gate" : "modal-backdrop"} role="presentation" data-modal-layer={inline ? undefined : "overlay"}>
       <div
         className="modal-dialog ask-user-dialog"
         role="dialog"
-        aria-modal="true"
+        aria-modal={inline ? undefined : true}
         aria-labelledby="ask-user-title"
       >
         <div className="modal-header">
@@ -120,7 +127,7 @@ export function AskUserDialog({
                           key={optId}
                           type="button"
                           className={`ask-user-opt ${on ? "active" : ""}`}
-                          onClick={() => toggle(qKey, optId, multi)}
+                          onClick={() => {if(!multi)setCustom(prev=>({...prev,[qKey]:""}));toggle(qKey, optId, multi);}}
                         >
                           <span className="ask-user-opt-label">
                             {opt.label || optId}
@@ -134,6 +141,7 @@ export function AskUserDialog({
                       );
                     })}
                   </div>
+                  <label className="ask-custom-label">{opts.length?'Your own answer':'Your answer'}<textarea aria-label={`Your answer to ${q.question||i+1}`} rows={2} value={custom[qKey]||''} placeholder="Type your answer…" onChange={e=>{setCustom(prev=>({...prev,[qKey]:e.target.value}));if(!multi)setAnswers(prev=>({...prev,[qKey]:[]}));}} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing&&allAnswered){e.preventDefault();submit();}}}/></label>
                 </div>
               );
             })

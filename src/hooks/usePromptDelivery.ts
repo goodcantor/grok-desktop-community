@@ -1,3 +1,4 @@
+import { useExecutionDelivery } from "./useExecutionDelivery";
 import {
   useCallback,
   useEffect,
@@ -7,7 +8,8 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
-import type { ComposerSubmit, QueuedPrompt } from "../components/Composer";
+import type { ComposerSubmit, QueuedPrompt } from "../types/prompt";
+import type {TurnOutcome} from '../components/ChatActivity';
 import {
   previewCaptureRefuseError,
   previewCaptureToSubmit,
@@ -27,7 +29,7 @@ import {
   interjectRpcFollowUp,
   midTurnAction,
 } from "../../shared/prompt-delivery.mjs";
-import type { TimelineImage, TimelineItem } from "../vite-env";
+import type { TimelineImage, TimelineItem } from "../types/desktop";
 
 type DeliverPayload = {
   text: string;
@@ -48,8 +50,9 @@ function userBubbleText(payload: {
  * Mid-turn queue + session/prompt delivery (CLI-style Enter / Ctrl+Enter).
  * Preview screenshots use mode "interject" while a turn is running.
  */
-export function usePromptDelivery(opts: {
+export function useLegacyPromptDelivery(opts: {
   project: string | null;
+  sessionId:string|null;
   conn: ConnState;
   busyRef: MutableRefObject<boolean>;
   openingRef: MutableRefObject<boolean>;
@@ -71,7 +74,13 @@ export function usePromptDelivery(opts: {
     refreshAuth,
   } = opts;
 
+  const queueKey=project&&opts.sessionId?project+"\0"+opts.sessionId:null;
+  const queueReady=useRef(false),queueScope=useRef(queueKey);
+  if(queueScope.current!==queueKey){queueScope.current=queueKey;queueReady.current=false;}
   const [promptQueue, setPromptQueue] = useState<QueuedPrompt[]>([]);
+  const [queuePaused,setQueuePaused]=useState(false),queuePausedRef=useRef(false);
+  const [turnOutcome,setTurnOutcome]=useState<TurnOutcome|null>(null);
+  useEffect(()=>{if(!promptQueue.length)return;const prevent=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',prevent);return()=>window.removeEventListener('beforeunload',prevent);},[promptQueue.length]);
   const promptQueueRef = useRef<QueuedPrompt[]>([]);
   const sendNowRef = useRef<QueuedPrompt | null>(null);
   const deliveryGenRef = useRef(0);
@@ -83,7 +92,13 @@ export function usePromptDelivery(opts: {
     promptQueueRef.current = promptQueue;
   }, [promptQueue]);
 
+  useEffect(()=>{let active=true;queueReady.current=false;if(!queueKey){setPromptQueue([]);promptQueueRef.current=[];return;}
+    void window.grokDesktop.queueRead(queueKey).then(items=>{if(!active||queueScope.current!==queueKey)return;const restored=items.map(q=>({...q,images:(q.images||[]).map(img=>({...img,previewUrl:`data:${img.mimeType};base64,${img.data}`}))}));queuePausedRef.current=true;setQueuePaused(true);promptQueueRef.current=restored;setPromptQueue(restored);queueReady.current=true;}).catch(e=>setError('Could not restore queue: '+String(e)));return()=>{active=false;};
+  },[queueKey]);
+  useEffect(()=>{if(!queueKey||!queueReady.current)return;const items=promptQueue.map(q=>({...q,images:q.images.map(({source,previewUrl,...img})=>({...img,previewUrl:''}))}));void window.grokDesktop.queueSave(queueKey,items).catch(e=>setError('Could not save queue: '+String(e)));},[promptQueue,queueKey]);
   const clearPromptQueue = useCallback(() => {
+    queueReady.current=false;
+    queuePausedRef.current=true;setQueuePaused(true);setTurnOutcome(null);
     deliveryGenRef.current += 1;
     setPromptQueue([]);
     promptQueueRef.current = [];
@@ -137,6 +152,13 @@ export function usePromptDelivery(opts: {
     setItems((prev) => removeQueuedUserMessage(prev, id));
   }, [setItems]);
 
+  const editQueued=useCallback((id:string,text:string)=>{
+    const item=promptQueueRef.current.find(q=>q.id===id);if(!item||!text.trim())return;
+    const next=promptQueueRef.current.map(q=>q.id===id?{...q,text:text.trim(),timelineText:undefined}:q);promptQueueRef.current=next;setPromptQueue(next);
+    setItems(prev=>prev.map(item=>item.kind==='user'&&item.queueId===id?{...item,text:text.trim()}:item));
+  },[setItems]);
+  const moveQueued=useCallback((id:string,direction:number)=>{const next=[...promptQueueRef.current],at=next.findIndex(q=>q.id===id),to=at+direction;if(at<0||to<0||to>=next.length)return;[next[at],next[to]]=[next[to],next[at]];promptQueueRef.current=next;setPromptQueue(next);},[]);
+  const [failedDelivery,setFailedDelivery]=useState<DeliverPayload|null>(null);
   const deliverPrompt = useCallback(
     async (payload: DeliverPayload) => {
       if (!project || busyRef.current || openingRef.current) return;
@@ -145,6 +167,7 @@ export function usePromptDelivery(opts: {
       if (!text && images.length === 0) return;
 
       const gen = deliveryGenRef.current;
+      const startedAt=Date.now();setTurnOutcome(null);
       pinToBottom();
       busyRef.current = true;
       setConn("busy");
@@ -166,23 +189,30 @@ export function usePromptDelivery(opts: {
       });
       const stale = () =>
         openingRef.current || deliveryGenRef.current !== gen;
+      let mayContinue=false;
       try {
-        await window.grokDesktop.prompt(text, {
+        const reply=await window.grokDesktop.prompt(text, {
           images: images.map(({ data, mimeType }) => ({ data, mimeType })),
           imageQuality: payload.imageQuality || "compact",
         });
         if (stale()) return;
+        setTurnOutcome({startedAt,endedAt:Date.now(),status:reply?.stopReason==='cancelled'?'stopped':'completed'});
         setItems((prev) => finalizeOpenTools(prev, "completed"));
         setConn("online");
+        mayContinue=true;
       } catch (e: unknown) {
         if (stale()) return;
         const msg = e instanceof Error ? e.message : String(e);
         const cancelled = /cancel/i.test(msg);
+        setTurnOutcome({startedAt,endedAt:Date.now(),status:cancelled?'stopped':'failed'});
         if (cancelled) {
+          mayContinue=true;
           setItems((prev) => finalizeOpenTools(prev, "cancelled"));
           setConn("online");
         } else {
+          queuePausedRef.current=true;setQueuePaused(true);
           setConn("error");
+          setFailedDelivery(payload);
           setError(msg);
           setItems((prev) => [
             ...finalizeOpenTools(prev, "failed"),
@@ -197,7 +227,7 @@ export function usePromptDelivery(opts: {
         }
       } finally {
         busyRef.current = false;
-        if (stale()) return;
+        if (stale()||!mayContinue) return;
         const nextNow = sendNowRef.current;
         if (nextNow) {
           sendNowRef.current = null;
@@ -215,7 +245,7 @@ export function usePromptDelivery(opts: {
           });
           return;
         }
-        const queued = promptQueueRef.current[0];
+        const queued = !queuePausedRef.current&&promptQueueRef.current[0];
         if (queued) {
           setPromptQueue((prev) => {
             const next = prev.slice(1);
@@ -298,6 +328,7 @@ export function usePromptDelivery(opts: {
         if (follow === "ok") return "ok";
         revertBubble();
         if (follow === "queue") {
+          setError("This engine queued your correction; it will run after the current response.");
           if (queueId) return "queue";
           if (!busyRef.current) {
             void deliverPrompt({
@@ -464,13 +495,29 @@ export function usePromptDelivery(opts: {
     [busyRef, openingRef, deliverInterject, deliverPrompt],
   );
 
+  const changeQueuePaused=useCallback((paused:boolean)=>{
+    if(!paused&&conn!=='online'&&conn!=='busy')return;
+    queuePausedRef.current=paused;setQueuePaused(paused);
+    if(paused||busyRef.current||openingRef.current||conn!=='online')return;
+    const item=promptQueueRef.current[0];if(!item)return;
+    const next=promptQueueRef.current.slice(1);promptQueueRef.current=next;setPromptQueue(next);
+    void deliverRef.current({text:item.text,images:item.images,imageQuality:item.imageQuality,timelineText:item.timelineText,queueId:item.id});
+  },[busyRef,openingRef,conn]);
+
   return {
     promptQueue,
+    queuePaused,changeQueuePaused,turnOutcome,
     promptQueueRef,
     sendNowRef,
     clearPromptQueue,
     removeQueued,
+    editQueued,moveQueued,failedDelivery,clearFailedDelivery:()=>setFailedDelivery(null),
     submitFromComposer,
     sendQueuedNow,
   };
+}
+
+export function usePromptDelivery(opts: Parameters<typeof useLegacyPromptDelivery>[0]) {
+  const useDelivery=window.grokDesktop.executionQueue ? useExecutionDelivery : useLegacyPromptDelivery;
+  return useDelivery(opts);
 }

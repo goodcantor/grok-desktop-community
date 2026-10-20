@@ -3,7 +3,7 @@ import type {
   BackboneSummary,
   LoginProgress,
   OpenCheckoutRow,
-} from "../vite-env";
+} from "../types/desktop";
 import { basen, samePathKey } from "../lib/path-utils";
 import { BrandMark, Spinner } from "./BrandMark";
 import { AuthGate } from "./AuthGate";

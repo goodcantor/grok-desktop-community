@@ -51,9 +51,9 @@ export function SafetyPage({
         <div className="settings-row-text">
           <span className="settings-label">Sandbox terminal</span>
           <span className="settings-desc">
-            When on (recommended), tool shells run in a project filesystem jail.
-            Host secrets and the Docker daemon stay out of reach; network still
-            works. Backend: {sandboxStatus || "…"}.
+            When enabled, tools require an available filesystem isolation backend.
+            Without one, tool terminals are blocked. Disable only to explicitly use
+            host shell access with your user privileges. Effective status: {sandboxStatus || "…"}.
           </span>
         </div>
         <input

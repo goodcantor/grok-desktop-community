@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   basen,
-  isLexicallyUnder,
   normalizePathKey,
   parentDir,
   relativeDisplay,
 } from "../../lib/path-utils";
 import { usePrivacy } from "../../lib/privacy-context";
 import { RefreshIcon } from "../BrandMark";
+import {AnchoredPopover} from '../AnchoredPopover';
+import type {VirtualElement} from '@floating-ui/react';
 import {
   joinProjectPath,
   visibleGitChanges,
@@ -16,8 +17,7 @@ import {
 } from "./types";
 
 type CtxMenu = {
-  x: number;
-  y: number;
+  anchor:VirtualElement;
   path: string;
   absPath: string;
   isDir: boolean;
@@ -126,7 +126,7 @@ export function useProjectFiles(project: string | null) {
       const res = await window.grokDesktop.getGitStatus(cwd);
       if (seq !== changesSeq.current) return;
       setChanges(res?.files ?? []);
-      setChangesError(null);
+      setChangesError(res.git===false?"This folder is not a Git repository. You can still browse and work with its files.":null);
     } catch (err) {
       if (seq !== changesSeq.current) return;
       setChangesError(err instanceof Error ? err.message : String(err));
@@ -253,27 +253,15 @@ export function FileBrowser({
   const { redact } = usePrivacy();
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
 
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const close = () => setCtxMenu(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    window.addEventListener("click", close);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [ctxMenu]);
+  useEffect(()=>setCtxMenu(null),[project]);
 
   const atProjectRoot =
     Boolean(project && browseCwd) &&
     normalizePathKey(project) === normalizePathKey(browseCwd!);
   const upPath =
-    browseCwd && project && !atProjectRoot ? parentDir(browseCwd) : null;
+    browseCwd ? parentDir(browseCwd) : null;
   const canGoUp =
-    upPath != null && project != null && isLexicallyUnder(project, upPath);
+    upPath != null && project != null && true;
 
   const pathLabel =
     project && browseCwd
@@ -309,13 +297,12 @@ export function FileBrowser({
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    const pad = 8;
-    const w = 200;
-    const h = 160;
+    const element=e.currentTarget;
+    const row=element.getBoundingClientRect();
+    const x=e.clientX||row.left,y=e.clientY||row.bottom;
     setCtxMenu({
       ...info,
-      x: Math.min(e.clientX, window.innerWidth - w - pad),
-      y: Math.min(e.clientY, window.innerHeight - h - pad),
+      anchor:{contextElement:element,getBoundingClientRect:()=>({x,y,left:x,top:y,right:x,bottom:y,width:0,height:0})},
     });
   };
 
@@ -522,12 +509,7 @@ export function FileBrowser({
         </>
       )}
       {ctxMenu ? (
-        <div
-          className="file-ctx-menu"
-          role="menu"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
+        <AnchoredPopover anchor={ctxMenu.anchor} onClose={()=>setCtxMenu(null)} label="File actions" className="file-ctx-menu" role="menu" placement="bottom-start" initialFocus>
           {!ctxMenu.isDir ? (
             <button
               type="button"
@@ -560,7 +542,7 @@ export function FileBrowser({
           >
             Show in folder
           </button>
-        </div>
+        </AnchoredPopover>
       ) : null}
     </>
   );

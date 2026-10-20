@@ -6,7 +6,6 @@ import {
 import {
   DEFAULT_REASONING_EFFORT,
   normalizeReasoningEffort,
-  reasoningEffortLabel,
   type ReasoningEffort,
 } from "../lib/reasoning-effort";
 
@@ -80,7 +79,6 @@ export function useAgentSafety(opts: {
         } else {
           setError(null);
         }
-        appendSystem?.(`Tool permission mode: ${mode}`);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         setError(`Failed to set permission mode: ${msg}`);
@@ -97,14 +95,11 @@ export function useAgentSafety(opts: {
         setReasoningEffort(effort);
         if (result.agentSynced === false && result.error) {
           setError(
-            `Effort set to ${effort} on the client, but the agent did not sync (${result.error}). New agent processes pick it up via --reasoning-effort.`,
+            `Could not change reasoning effort: ${result.error}`,
           );
         } else {
           setError(null);
         }
-        appendSystem?.(
-          `Reasoning effort: ${reasoningEffortLabel(effort)} (/effort ${effort})`,
-        );
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         setError(`Failed to set reasoning effort: ${msg}`);
@@ -143,6 +138,8 @@ export function useAgentSafety(opts: {
       try {
         const value = await window.grokDesktop.setSandboxTerminal(next);
         setSandboxTerminal(value);
+        const info=await window.grokDesktop.getInfo();
+        setSandboxStatus(info.sandboxStatus);
       } finally {
         sandboxApplyLock.current = false;
       }
@@ -153,6 +150,7 @@ export function useAgentSafety(opts: {
   return {
     permissionMode,
     reasoningEffort,
+    setReasoningEffort,
     allowOutsideProject,
     sandboxTerminal,
     sandboxStatus,

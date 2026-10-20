@@ -80,6 +80,11 @@ function isSimpleExecToken(command) {
   return true;
 }
 
+function isExistingExecutablePath(command) {
+  if(!path.isAbsolute(command)||looksLikeScriptBody(command))return false;
+  try{return fs.statSync(command).isFile();}catch{return false;}
+}
+
 /**
  * @param {string} script
  * @returns {{ execCommand: string, args: string[], useShell: boolean }}
@@ -205,6 +210,10 @@ export function normalizeTerminalSpawn(command, argsIn) {
     ? argsIn.map(String).filter((a) => a.length > 0)
     : [];
 
+  // Spaces in a real executable path are not a packed command line. Keep its
+  // argv intact, particularly Git Bash and PowerShell under Program Files.
+  if(isExistingExecutablePath(cmd))return {execCommand:cmd,args,useShell:isWin&&/\.(cmd|bat)$/i.test(cmd)};
+
   if (looksLikeScriptBody(cmd) && args.length === 0) {
     return spawnViaBashLc(cmd);
   }
@@ -321,12 +330,12 @@ export function resolveSpawnPlan(command, argsIn = [], opts = {}) {
     argsIn,
   );
 
-  if (/\s/.test(execCommand) || looksLikeScriptBody(execCommand)) {
+  if ((/\s/.test(execCommand)&&!isExistingExecutablePath(execCommand)) || looksLikeScriptBody(execCommand)) {
     const fixed = normalizeTerminalSpawn(execCommand, args);
     execCommand = fixed.execCommand;
     args = fixed.args;
     useShell = fixed.useShell;
-    if (/\s/.test(execCommand) || looksLikeScriptBody(execCommand)) {
+    if ((/\s/.test(execCommand)&&!isExistingExecutablePath(execCommand)) || looksLikeScriptBody(execCommand)) {
       const fb = opts.fallbackCommand != null ? opts.fallbackCommand : command;
       execCommand = bashPath();
       args = ["-lc", String(fb)];

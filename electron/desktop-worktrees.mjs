@@ -21,7 +21,7 @@ import {
 import { grokHomeDir } from "./grok-home.mjs";
 import { setExtraAllowedRootsFor } from "./path-safety.mjs";
 
-export const DESKTOP_APP_USER_MODEL_ID = "com.karman.grok-desktop";
+export const DESKTOP_APP_USER_MODEL_ID = "io.github.goodcantor.grokdesktopcommunity";
 
 export const MARKER_MAX_BYTES = 8 * 1024;
 
@@ -494,19 +494,19 @@ export function isPrimaryDesktopInstance(app) {
  * @param {() => void} onSecondInstance
  */
 export function wireSecondInstance(app, onSecondInstance) {
-  let pending = 0;
+  let pending = [];
   const flush = () => {
-    const n = pending;
-    pending = 0;
-    for (let i = 0; i < n; i++) onSecondInstance();
+    const requests = pending;
+    pending = [];
+    for (const argv of requests) onSecondInstance(argv);
   };
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event,argv=[]) => {
     const ready = typeof app.isReady === "function" ? app.isReady() : true;
     if (!ready) {
-      pending += 1;
+      pending.push(argv);
       return;
     }
-    onSecondInstance();
+    onSecondInstance(argv);
   });
   if (typeof app.whenReady === "function") {
     Promise.resolve(app.whenReady()).then(flush).catch(() => {});

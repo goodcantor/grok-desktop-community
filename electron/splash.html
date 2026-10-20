@@ -4,9 +4,10 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'unsafe-inline';"
     />
     <title>Grok Desktop</title>
+    <link rel="stylesheet" href="../shared/theme-palette.css" />
     <style>
       html, body {
         height: 100%;
@@ -15,16 +16,16 @@
       body {
         display: grid;
         place-items: center;
-        background: #0c0c0f;
-        color: #f2f2f5;
+        background: var(--bg, #171819);
+        color: var(--text, #ececec);
         font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
         user-select: none;
         -webkit-app-region: drag;
         cursor: default;
       }
       html[data-theme="light"] body {
-        background: #f3f3f7;
-        color: #14141c;
+        background: var(--bg, #fff);
+        color: var(--text, #232426);
       }
       .inner { padding: 24px; text-align: center; }
       strong {
@@ -33,8 +34,8 @@
         font-size: 18px;
         font-weight: 650;
       }
-      span { color: #9a9aab; font-size: 13px; }
-      html[data-theme="light"] span { color: #5a5a6e; }
+      span { color: var(--text-muted, #a0a1a4); font-size: 13px; }
+      html[data-theme="light"] span { color: var(--text-muted, #66696e); }
       .boot-mark {
         width: 48px;
         height: 48px;
@@ -45,8 +46,8 @@
         width: 22px;
         height: 22px;
         margin: 16px auto 0;
-        border: 2.5px solid rgba(167, 139, 250, 0.25);
-        border-top-color: #a78bfa;
+        border: 2.5px solid var(--boot-ring, #414447);
+        border-top-color: var(--accent, #ececec);
         border-radius: 50%;
         animation: boot-spin 0.75s linear infinite;
       }

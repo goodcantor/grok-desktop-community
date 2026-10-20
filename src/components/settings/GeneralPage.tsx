@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { EditorListResult } from "../../vite-env";
+import type { EditorListResult } from "../../types/desktop";
 
 export function GeneralPage({
   theme,
@@ -26,7 +26,7 @@ export function GeneralPage({
 
   return (
     <section className="settings-section">
-      <label className="settings-row">
+      <div className="settings-row">
         <div className="settings-row-text">
           <span className="settings-label">Theme</span>
           <span className="settings-desc">
@@ -49,7 +49,7 @@ export function GeneralPage({
             Day
           </button>
         </div>
-      </label>
+      </div>
 
       <label className="settings-row">
         <div className="settings-row-text">

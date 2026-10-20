@@ -10,6 +10,7 @@ import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
+import { goalFromUpdate, snapshotModel } from "../shared/composer-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { agentEnv } from "./auth.mjs";
@@ -90,8 +91,8 @@ import {
 import { shouldAutoTrustFolder } from "./desktop-worktrees.mjs";
 import { debugLog } from "./debug-log.mjs";
 import { errorFields, writeCrashLog } from "./crash-log.mjs";
+import { sendAcpRequest, notePromptActivity, notePromptCancellation, promptRunState } from './acp-requests.mjs';
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 const INIT_TIMEOUT_MS = 60_000;
 const LOAD_TIMEOUT_MS = 90_000;
 
@@ -179,17 +180,17 @@ function summarizeMcpAuthResult(raw, serverName) {
 /**
  * Deduped `{ modelId, name }` list for IPC / open-session results.
  * @param {any[]} list
- * @returns {{ modelId: string, name: string }[]}
+ * @returns {ReturnType<typeof snapshotModel>[]}
  */
 function snapshotAvailableModels(list) {
   const seen = new Set();
-  /** @type {{ modelId: string, name: string }[]} */
+  /** @type {ReturnType<typeof snapshotModel>[]} */
   const out = [];
   for (const m of list || []) {
     const modelId = String(m?.modelId || "").trim();
     if (!modelId || seen.has(modelId)) continue;
     seen.add(modelId);
-    out.push({ modelId, name: modelEntryName(m) || modelId });
+    out.push(snapshotModel({...m, modelId, name: modelEntryName(m) || modelId}));
   }
   return out;
 }
@@ -214,6 +215,7 @@ export class GrokAcpClient extends EventEmitter {
     clientVersion = "0.1.2",
     /** BrowserWindow id so Preview MCP Send screenshot returns to this chat. */
     windowId = 0,
+    previewExecutionId = null,
   } = {}) {
     super();
     this.cwd = cwd || process.cwd();
@@ -226,6 +228,7 @@ export class GrokAcpClient extends EventEmitter {
     this.sandboxTerminal = sandboxTerminal !== false;
     this.reasoningEffort = normalizeReasoningEffort(reasoningEffort);
     this.clientVersion = clientVersion;
+    this.previewExecutionId=previewExecutionId;
     this.windowId = Number.parseInt(String(windowId || ""), 10) || 0;
     this.proc = null;
     this.rl = null;
@@ -253,7 +256,7 @@ export class GrokAcpClient extends EventEmitter {
     this.currentModelName = null;
     /**
      * Models advertised on session/new|load (`models.availableModels`).
-     * @type {{ modelId: string, name: string }[]}
+     * @type {ReturnType<typeof snapshotModel>[]}
      */
     this.availableModels = [];
     /**
@@ -270,7 +273,10 @@ export class GrokAcpClient extends EventEmitter {
     });
     // Forward terminal lifecycle for optional UI live-output later
     for (const ev of ["created", "output", "exit", "released"]) {
-      this.terminals.on(ev, (payload) => this.emit(`terminal:${ev}`, payload));
+      this.terminals.on(ev, (payload) => {
+        notePromptActivity(this, this.sessionId);
+        this.emit(`terminal:${ev}`, payload);
+      });
     }
   }
 
@@ -421,7 +427,7 @@ export class GrokAcpClient extends EventEmitter {
       {
         protocolVersion: 1,
         clientInfo: {
-          name: "grok-desktop",
+          name: "grok-desktop-community",
           version: this.clientVersion,
         },
         clientCapabilities: acpClientCapabilities(),
@@ -451,7 +457,7 @@ export class GrokAcpClient extends EventEmitter {
   }
 
   _previewMcpPayload() {
-    const servers = desktopPreviewMcpServers(this.windowId);
+    const servers = desktopPreviewMcpServers(this.windowId,this.previewExecutionId);
     debugLog("preview", "session-mcp", {
       count: servers.length,
       names: servers.map((s) => s.name),
@@ -543,6 +549,7 @@ export class GrokAcpClient extends EventEmitter {
   }
 
   async newSession() {
+    this.goalState = null;
     // Drop prior chat's processes so /new and session switch don't leak shells
     try {
       this.terminals.disposeAll();
@@ -581,6 +588,7 @@ export class GrokAcpClient extends EventEmitter {
    * @param {string} sessionId
    */
   async loadSession(sessionId) {
+    this.goalState = null;
     if (!sessionId) throw new Error("sessionId required");
     const caps = this.agentCapabilities || {};
     if (caps.loadSession === false) {
@@ -678,6 +686,9 @@ export class GrokAcpClient extends EventEmitter {
     }
 
     const c = classifyInboundMessage(msg);
+    if (c.kind === 'session-update' || c.kind === 'server-request') {
+      notePromptActivity(this, c.params?.sessionId);
+    }
     const interjection = unwrapSessionInterjection(msg.method, msg.params);
     if (interjection) {
       this.emit("session-interjection", interjection);
@@ -707,6 +718,18 @@ export class GrokAcpClient extends EventEmitter {
     }
 
     if (c.kind === "session-update") {
+      // The engine can echo the user message before its turn is cancellable.
+      // If Stop was requested that early and work subsequently starts, repeat
+      // the same cancellation once. Never start or replay a prompt here.
+      const kind = c.params?.update?.sessionUpdate;
+      if (['agent_thought_chunk','agent_message_chunk','tool_call'].includes(kind)) {
+        const active = [...this.pending.values()].find(p => p.method === 'session/prompt' && p.sessionId === (c.params?.sessionId || this.sessionId));
+        if (active?.cancelRequestedAt != null && !active.cancelRetried) {
+          active.cancelRetried = true;
+          this.cancel();
+        }
+      }
+      this.goalState = goalFromUpdate(this.goalState || null, c.params);
       const modeId = currentModeIdFromUpdate(c.params);
       if (modeId !== undefined) this.currentModeId = modeId;
       // Progress only — does not complete tools; agent still needs client RPCs.
@@ -1021,28 +1044,12 @@ export class GrokAcpClient extends EventEmitter {
    * @param {{ timeoutMs?: number }} [opts]
    */
   request(method, params = {}, opts = {}) {
-    const id = this.nextId++;
-    const timeoutMs = opts.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        if (!this.pending.has(id)) return;
-        this.pending.delete(id);
-        reject(
-          new Error(
-            `ACP request timed out after ${timeoutMs}ms: ${method}`,
-          ),
-        );
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
-      try {
-        this._write({ jsonrpc: "2.0", id, method, params });
-      } catch (err) {
-        clearTimeout(timer);
-        this.pending.delete(id);
-        reject(err);
-      }
-    });
+    return sendAcpRequest(this, method, params, opts);
   }
+
+  get desktopPromptActive() { return this.getRunState().active; }
+
+  getRunState() { return promptRunState(this); }
 
   notify(method, params = {}) {
     try {
@@ -1381,6 +1388,11 @@ export class GrokAcpClient extends EventEmitter {
   }
 
   async prompt(text, { images = [], imageQuality = "compact" } = {}) {
+    // A goal launch/resume is a regular execution mode, never a nested plan.
+    if (/^\s*\/goal\s+(?!status\s*$|pause\s*$|clear\s*$)\S/i.test(String(text)) && this.currentModeId === "plan") {
+      const result = await this.setSessionMode("default");
+      if (!result.agentSynced) throw new Error(result.error || "Could not leave plan mode");
+    }
     if (!this.sessionId) throw new Error("No ACP session");
     const prompt = [{ type: "text", text }];
     for (const img of images) {
@@ -1391,14 +1403,14 @@ export class GrokAcpClient extends EventEmitter {
         mimeType: compressed.mimeType || "image/png",
       });
     }
-    // Long agent turns — generous timeout
+    // ACP replies only when the turn ends. Goals, approvals and long tasks may
+    // legitimately exceed 30 minutes; keep tracking until reply/exit/disposal.
     return this.request(
       "session/prompt",
       {
         sessionId: this.sessionId,
         prompt,
       },
-      { timeoutMs: 30 * 60_000 },
     );
   }
 
@@ -1460,6 +1472,7 @@ export class GrokAcpClient extends EventEmitter {
   }
 
   cancel() {
+    notePromptCancellation(this);
     // ACP: Client MUST respond to pending request_permission with cancelled.
     // Also settle extension gates via main (plan/ask) — caller should use
     // clearPendingPermissions. Kill tool shells so terminal/wait_for_exit
@@ -1534,13 +1547,16 @@ export class GrokAcpClient extends EventEmitter {
    * }>}
    */
   async setReasoningEffort(level) {
-    this.reasoningEffort = normalizeReasoningEffort(level);
+    const next = normalizeReasoningEffort(level);
 
     if (!this.sessionId || !this.ready || !this.proc) {
+      this.reasoningEffort = next;
       return { effort: this.reasoningEffort, agentSynced: false };
     }
 
     const modelId = this.currentModelId;
+    const model = this.availableModels.find(m => m.modelId === modelId);
+    if(model?.supportsReasoningEffort===false || (model?.reasoningEfforts?.length && !model.reasoningEfforts.some(e=>e.value===next))) return {effort:this.reasoningEffort,agentSynced:false,error:"This reasoning effort is not supported by the current model"};
     if (!modelId) {
       return {
         effort: this.reasoningEffort,
@@ -1555,10 +1571,11 @@ export class GrokAcpClient extends EventEmitter {
         {
           sessionId: this.sessionId,
           modelId,
-          _meta: { reasoningEffort: this.reasoningEffort },
+          _meta: { reasoningEffort: next },
         },
         { timeoutMs: 15_000 },
       );
+      this.reasoningEffort = next;
       return { effort: this.reasoningEffort, agentSynced: true };
     } catch (err) {
       const error = err?.message || String(err);
@@ -1583,6 +1600,28 @@ export class GrokAcpClient extends EventEmitter {
    *   error?: string,
    * }>}
    */
+  async getRuntimeState() {
+    if (!this.sessionId || !this.ready) throw new Error("Agent is not ready");
+    const sessionId = this.sessionId;
+    const raw = await this.request("_x.ai/session/info", {sessionId}, {timeoutMs: 8_000});
+    if (this.sessionId !== sessionId) throw new Error("Session changed");
+    const info = unwrapExtMethodResult(raw);
+    const context = info?.context;
+    return {sessionId, ...this._modelsPublic(), sessionMode: this.currentModeId || "default", reasoningEffort: this.reasoningEffort, goal: this.goalState || null,
+      context: context && Number.isFinite(context.total) && context.total > 0 ? {used: Number(context.used) || 0, total: context.total, autoCompactThresholdPercent: Number(context.autoCompactThresholdPercent) || null} : null};
+  }
+
+  async setContextWindow(value) {
+    const windowSize = Number(value), sessionId = this.sessionId;
+    const entry = this.availableModels.find(m => m.modelId === this.currentModelId);
+    if (!sessionId || !this.ready || !Number.isSafeInteger(windowSize) || !entry?.contextWindows?.includes(windowSize)) throw new Error("This context window is not advertised by the current model");
+    await this.request("session/set_model", {sessionId, modelId: this.currentModelId, _meta: {reasoningEffort: this.reasoningEffort, contextWindow: windowSize}}, {timeoutMs: 15_000});
+    if (this.sessionId !== sessionId) throw new Error("Session changed");
+    const state = await this.getRuntimeState();
+    if (state.context?.total !== windowSize) throw new Error("The engine did not apply this context window");
+    return state;
+  }
+
   async setModel(modelId) {
     const nextId = String(modelId || "").trim();
 
@@ -1605,13 +1644,18 @@ export class GrokAcpClient extends EventEmitter {
       };
     }
 
+    const targetModel = this.availableModels.find(m => m.modelId === nextId);
+    const efforts = targetModel?.reasoningEfforts?.map(e => e.value) || [];
+    const nextEffort = efforts.length && !efforts.includes(this.reasoningEffort)
+      ? efforts.includes("high") ? "high" : efforts[0]
+      : this.reasoningEffort;
     try {
       await this.request(
         "session/set_model",
         {
           sessionId: sessionAtStart,
           modelId: nextId,
-          _meta: { reasoningEffort: this.reasoningEffort },
+          _meta: { reasoningEffort: nextEffort },
         },
         { timeoutMs: 15_000 },
       );
@@ -1624,9 +1668,10 @@ export class GrokAcpClient extends EventEmitter {
         };
       }
       this.currentModelId = nextId;
+      this.reasoningEffort = normalizeReasoningEffort(nextEffort);
       const entry = this.availableModels.find((m) => m.modelId === nextId);
       this.currentModelName = entry?.name || nextId;
-      return { ...this._modelsPublic(), agentSynced: true };
+      return { ...this._modelsPublic(), reasoningEffort: this.reasoningEffort, agentSynced: true };
     } catch (err) {
       return {
         ...this._modelsPublic(),
@@ -1649,6 +1694,10 @@ export class GrokAcpClient extends EventEmitter {
    */
   async setSessionMode(modeId) {
     const nextId = String(modeId || "").trim();
+    if (nextId === "plan" && this.goalState?.status === "active") {
+      await this.prompt("/goal pause");
+      if (this.goalState?.status === "active") return {modeId: this.currentModeId || null, agentSynced: false, error: "Pause the active goal before entering plan mode"};
+    }
     if (!nextId) {
       return {
         modeId: this.currentModeId || null,

@@ -13,6 +13,12 @@ import {
   shouldFallbackToNewSession,
 } from "../electron/agent-restart.mjs";
 
+test('restart keeps execution generation, run state and advertised models',()=>{
+  const session={cwd:'/p',sessionId:'s',scope:{recordId:'record',generation:2,sessionId:'s'},runState:{active:false},availableModels:[{modelId:'model',name:'Model'}]};
+  const result=mergeRestartResult(session);
+  assert.deepEqual(result.scope,session.scope);assert.deepEqual(result.runState,session.runState);assert.deepEqual(result.availableModels,session.availableModels);
+});
+
 test("restartTargetFromAgent refuses when no agent or cwd", () => {
   assert.equal(restartTargetFromAgent(null), null);
   assert.equal(restartTargetFromAgent(undefined), null);

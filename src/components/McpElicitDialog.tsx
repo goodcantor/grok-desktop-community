@@ -173,7 +173,9 @@ function ElicitFormFields({
 export function McpElicitDialog({
   request,
   onRespond,
+  inline = false,
 }: {
+  inline?: boolean;
   request: McpElicitRequest | null;
   onRespond: (reqId: string, decision: McpElicitDecision) => void;
 }) {
@@ -283,14 +285,14 @@ export function McpElicitDialog({
 
   return (
     <div
-      className="modal-backdrop"
+      className={inline ? "inline-gate" : "modal-backdrop"}
       role="presentation"
-      data-modal-layer="overlay"
+      data-modal-layer={inline ? undefined : "overlay"}
     >
       <div
         className="modal-dialog mcp-elicit-dialog"
         role="dialog"
-        aria-modal="true"
+        aria-modal={inline ? undefined : true}
         aria-labelledby="mcp-elicit-title"
       >
         <div className="modal-header">

@@ -1,0 +1,15 @@
+export const SHORTCUTS=[
+  {keys:'Ctrl / ⌘ + N',name:'New chat',description:'Start a chat in the current workspace'},
+  {keys:'Ctrl / ⌘ + Shift + N',name:'New window',description:'Open a separate Grok window'},
+  {keys:'Ctrl / ⌘ + K',name:'Search chats',description:'Search all local conversation messages'},
+  {keys:'Ctrl / ⌘ + F',name:'Search this chat',description:'Search the full current conversation'},
+  {keys:'Ctrl / ⌘ + Shift + P',name:'Command palette',description:'Search actions and explicit slash commands'},
+  {keys:'Ctrl / ⌘ + /',name:'Keyboard shortcuts',description:'Open this reference'},
+  {keys:'Ctrl / ⌘ + `',name:'Terminal',description:'Show or hide the terminal'},
+  {keys:'Enter',name:'Send or queue',description:'Send when ready; queue a follow-up while working'},
+  {keys:'Shift + Enter',name:'New line',description:'Insert a line in your message'},
+  {keys:'Ctrl / ⌘ + Enter',name:'Stop and send',description:'Stop the response and send your draft next'},
+  {keys:'Ctrl / ⌘ + + / − / 0',name:'Interface zoom',description:'Increase, decrease or reset interface scale'},
+  {keys:'Ctrl / ⌘ + L',name:'Browser address',description:'Focus the address while using the Browser panel'},
+  {keys:'Escape',name:'Close menu or dialog',description:'Return to the previous control'},
+];

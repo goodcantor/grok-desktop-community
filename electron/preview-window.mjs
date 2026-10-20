@@ -1,18 +1,20 @@
+import { configurePreviewPermissions } from './preview-permissions.mjs';
 /**
- * Detachable Preview window (separate BrowserWindow + WebContentsView).
- * Lives on its own screen; not a column in the main GUI.
+ * Browser panel hosted as native WebContentsViews in the owning chat window.
+ * An ownerless caller can still use the legacy detached BrowserWindow.
  *
  * Isolated session (no host cookies). http(s) only.
  */
 import {
   BrowserWindow,
   WebContentsView,
-  ipcMain,
+  ipcMain as nativePreviewIpc,
   screen,
   session,
   shell,
 } from "electron";
 import path from "node:path";
+import {bootBackground} from "./splash.mjs";
 import { fileURLToPath } from "node:url";
 import {
   estimateImageTokens,
@@ -30,6 +32,9 @@ import {
   ingestWebRequest,
 } from "./preview-network.mjs";
 import { errorFields, writeCrashLog } from "./crash-log.mjs";
+import {installZoom} from './zoom.mjs';
+import {stepZoom} from '../shared/zoom.mjs';
+import {fitPreviewViewport} from '../shared/preview-geometry.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,6 +49,14 @@ const TOOLBAR_FALLBACK = 52;
 
 /** @type {import('electron').BrowserWindow | null} */
 let previewWin = null;
+let dockOwner = null;
+let dockChrome = null;
+let dockBounds = null;
+let dockVisible = false;
+let dockOpening = null;
+let lastError = '';
+let navigationGeneration=0;
+let lastEmulationKey='';
 /** @type {import('electron').WebContentsView | null} */
 let guestView = null;
 /** @type {((state: Record<string, unknown>) => void) | null} */
@@ -66,6 +79,9 @@ let lastUrl = "about:blank";
 let lastTitle = "";
 let loading = false;
 let ipcReady = false;
+let captureSender=null;
+export function ownsPreviewContents(wc){return wc===guestWc()||wc===chromeWc();}
+export function hideExecutionPreview(){dockVisible=false;dockChrome?.setVisible(false);guestView?.setVisible(false);}
 
 /** @type {PreviewNetworkLog} */
 let networkLog = new PreviewNetworkLog();
@@ -80,7 +96,7 @@ function themeFromState() {
 }
 
 function isLive() {
-  return Boolean(previewWin && !previewWin.isDestroyed());
+  return Boolean((previewWin && !previewWin.isDestroyed()) || (dockOwner && !dockOwner.isDestroyed() && dockChrome && !dockChrome.webContents.isDestroyed()));
 }
 
 function guestWc() {
@@ -91,12 +107,12 @@ function guestWc() {
 
 function chromeWc() {
   if (!isLive()) return null;
-  const wc = previewWin.webContents;
+  const wc = dockChrome?.webContents || previewWin?.webContents;
   return wc && !wc.isDestroyed() ? wc : null;
 }
 
 export function getPreviewWindow() {
-  return isLive() ? previewWin : null;
+  return previewWin && !previewWin.isDestroyed() ? previewWin : null;
 }
 
 export function isPreviewOpen() {
@@ -158,14 +174,14 @@ export function preferredPreviewBounds(owner, saved) {
 function persistNow() {
   if (!persist || !isLive()) return;
   persist({
-    previewBounds: previewWin.getBounds(),
+    ...(getPreviewWindow()?{previewBounds:previewWin.getBounds()}:{}),
     previewLastUrl: lastUrl === "about:blank" ? "" : lastUrl,
     previewViewport: viewportId,
   });
 }
 
-function emitChrome() {
-  const payload = previewPublicState();
+function emitChrome(extra={}) {
+  const payload = {...previewPublicState(),...extra};
   try {
     chromeWc()?.send("preview:state", payload);
   } catch {
@@ -185,6 +201,11 @@ export function previewPublicState() {
     title: lastTitle,
     viewport: viewportId,
     loading,
+    error:lastError,
+    presentation:dockOwner?'docked':'window',
+    ownerWindowId:(dockOwner||ownerWindow())?.id||null,
+    visible:dockOwner?dockVisible:isLive(),
+    zoom:guestWc()?.getZoomFactor()||1,
     canGoBack: Boolean(guestWc()?.navigationHistory?.canGoBack?.()),
     canGoForward: Boolean(guestWc()?.navigationHistory?.canGoForward?.()),
   };
@@ -336,10 +357,12 @@ export function snapshotPreviewNetwork(opts = {}) {
 
 function layoutGuest() {
   if (!isLive() || !guestView) return;
-  const [cw, ch] = previewWin.getContentSize();
-  const top = Math.max(36, toolbarHeight);
-  const side = Math.max(0, Math.min(sideWidth, Math.floor(cw * 0.5)));
-  const bottom = Math.max(0, Math.min(bottomHeight, Math.floor(ch * 0.72)));
+  if(dockOwner&&!dockBounds)return;
+  const [cw, ch] = dockBounds ? [dockBounds.width,dockBounds.height] : previewWin.getContentSize();
+  const scale=chromeWc()?.getZoomFactor()||1;
+  const top = Math.max(36, Math.ceil(toolbarHeight*scale));
+  const side = Math.max(0, Math.min(sideWidth*scale, Math.floor(cw * 0.5)));
+  const bottom = Math.max(0, Math.min(bottomHeight*scale, Math.floor(ch * 0.72)));
   const availW = Math.max(0, cw - side);
   const availH = Math.max(0, ch - top - bottom);
   const spec = VIEWPORTS[viewportId] || VIEWPORTS.fluid;
@@ -348,44 +371,40 @@ function layoutGuest() {
   let width = availW;
   let height = availH;
   if (spec.width && spec.height) {
-    width = Math.min(spec.width, availW);
-    height = Math.min(spec.height, availH);
+    const fitted=fitPreviewViewport(availW,availH,spec);
+    width=fitted.width;height=fitted.height;
     x = Math.max(0, Math.floor((availW - width) / 2));
     y = top + Math.max(0, Math.floor((availH - height) / 2));
   }
+  if(dockOwner&&dockChrome) {
+    dockChrome.setBounds(dockBounds);dockChrome.setVisible(dockVisible);
+    guestView.setVisible(dockVisible&&width>0&&height>0&&lastUrl!=='about:blank');
+  }
   if (width < 1 || height < 1) return;
   try {
-    guestView.setBounds({ x, y, width, height });
+    if(dockOwner&&dockChrome) {
+      dockChrome.setBounds(dockBounds);
+      dockChrome.setVisible(dockVisible);
+      guestView.setVisible(dockVisible&&lastUrl!=='about:blank');
+      x+=dockBounds.x;y+=dockBounds.y;
+    }
+    guestView.setBounds({ x:Math.round(x), y:Math.round(y), width:Math.round(width), height:Math.round(height) });
+    const wc=guestWc(),url=wc?.getURL();
+    // Windows can crash if device emulation is used before the first page.
+    if(wc&&url&&url!=='about:blank') {
+      const fitted=fitPreviewViewport(availW,availH,spec),key=`${spec.id}:${fitted.scale.toFixed(5)}`;
+      if(key!==lastEmulationKey) {
+        if(spec.width)wc.enableDeviceEmulation({screenPosition:spec.id==='mobile'?'mobile':'desktop',screenSize:{width:spec.width,height:spec.height},viewSize:{width:spec.width,height:spec.height},deviceScaleFactor:spec.id==='mobile'?2:1,scale:fitted.scale});
+        else wc.disableDeviceEmulation();
+        lastEmulationKey=key;
+      }
+    }
   } catch {
     /* guest not attached yet */
   }
 }
 
 function applyViewport() {
-  const wc = guestWc();
-  const spec = VIEWPORTS[viewportId] || VIEWPORTS.fluid;
-  // Device emulation on a guest that has never loaded a URL AVs Electron
-  // on Windows (Crashpad ACCESS_VIOLATION during Preview open).
-  const url = (() => {
-    try {
-      return wc && !wc.isDestroyed() ? wc.getURL() : "";
-    } catch {
-      return "";
-    }
-  })();
-  if (wc && spec.width && url && url !== "about:blank") {
-    try {
-      wc.enableDeviceEmulation({
-        screenPosition: spec.id === "mobile" ? "mobile" : "desktop",
-        screenSize: { width: spec.width, height: spec.height },
-        viewSize: { width: spec.width, height: spec.height },
-        deviceScaleFactor: spec.id === "mobile" ? 2 : 1,
-        scale: 1,
-      });
-    } catch {
-      /* older Electron / empty guest */
-    }
-  }
   layoutGuest();
   emitChrome();
 }
@@ -398,17 +417,25 @@ async function loadGuest(href) {
   if (!wc) throw new Error("Preview is not open");
   const parsed = normalizePreviewUrl(href);
   if (!parsed.ok) throw new Error(parsed.error);
+  const generation=++navigationGeneration;
   lastUrl = parsed.href;
+  layoutGuest();
+  lastError='';
   loading = true;
   emitChrome();
-  await wc.loadURL(parsed.href);
+  try {await wc.loadURL(parsed.href);}catch(error){
+    // A newer navigation or a redirect can abort this load. That is not a
+    // failed browser, and must not overwrite the new page's state.
+    if(generation!==navigationGeneration||error?.code==='ERR_ABORTED'||error?.errno===-3||/ERR_ABORTED/.test(error?.message||''))return;
+    lastError=error?.message||'Could not load this page';loading=false;emitChrome();throw error;
+  }
 }
 
 function attachGuestHandlers(wc) {
   wc.setWindowOpenHandler(({ url }) => {
     const parsed = normalizePreviewUrl(url);
     if (parsed.ok && parsed.href !== "about:blank") {
-      void wc.loadURL(parsed.href);
+      void loadGuest(parsed.href).catch(()=>{});
     }
     return { action: "deny" };
   });
@@ -420,17 +447,19 @@ function attachGuestHandlers(wc) {
   });
   wc.on("page-title-updated", (_e, title) => {
     lastTitle = title || "";
-    if (isLive()) previewWin.setTitle(lastTitle ? `${lastTitle} · Preview` : "Preview · Grok");
+    if (getPreviewWindow()) previewWin.setTitle(lastTitle ? `${lastTitle} · Preview` : "Preview · Grok");
     emitChrome();
   });
   wc.on("did-start-loading", () => {
     loading = true;
+    lastError='';
     emitChrome();
   });
   wc.on("did-stop-loading", () => {
     loading = false;
     lastUrl = wc.getURL() || lastUrl;
     lastTitle = wc.getTitle() || lastTitle;
+    layoutGuest();
     emitChrome();
   });
   wc.on("did-navigate", (_e, url) => {
@@ -446,15 +475,18 @@ function attachGuestHandlers(wc) {
     loading = false;
     lastUrl = url || lastUrl;
     emitChrome();
-    void desc;
+    lastError=`Could not load this page: ${desc}`;emitChrome();
   });
 }
 
 function createGuest() {
-  const ses = session.fromPartition("grok-preview");
+  lastEmulationKey='';
+  const ses = session.fromPartition("persist:grok-desktop-preview");
+  configurePreviewPermissions(ses);
   const view = new WebContentsView({
     webPreferences: {
       session: ses,
+      preload:path.join(__dirname,'preview','guest-preload.cjs'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -462,6 +494,12 @@ function createGuest() {
     },
   });
   view.setBackgroundColor("#111113");
+  view.webContents.desktopZoom=installZoom(view.webContents,{initial:readState?.()?.previewZoom||1,onChange:factor=>{persist?.({previewZoom:factor});emitChrome();}});
+  view.webContents.on('before-input-event',(event,input)=>{
+    if(input.type==='keyDown'&&(input.control||input.meta)&&input.key.toLowerCase()==='l') {
+      event.preventDefault();chromeWc()?.focus();void chromeWc()?.executeJavaScript("document.getElementById('url').focus();document.getElementById('url').select();");
+    }
+  });
   attachGuestHandlers(view.webContents);
   return view;
 }
@@ -511,6 +549,8 @@ export async function openPreviewWindow(opts = {}) {
 async function openPreviewWindowInner(opts = {}) {
   const owner = opts.owner || null;
   claimPreviewOwner(owner);
+  if(owner&&!opts.detached) return openDockedPreview(owner,opts.url);
+  if(dockOwner)releaseDockHost();
   const state = readState?.() || {};
   viewportId = VIEWPORTS[state.previewViewport] ? state.previewViewport : "fluid";
 
@@ -524,7 +564,7 @@ async function openPreviewWindowInner(opts = {}) {
       title: "Preview · Grok",
       show: false,
       autoHideMenuBar: true,
-      backgroundColor: themeFromState() === "light" ? "#f3f3f7" : "#0c0c0f",
+      backgroundColor: bootBackground(themeFromState()),
       webPreferences: {
         preload: path.join(__dirname, "preview", "preview-preload.cjs"),
         contextIsolation: true,
@@ -541,6 +581,7 @@ async function openPreviewWindowInner(opts = {}) {
     });
     win.on("move", persistSoon);
     win.on("closed", () => {
+      if(previewWin!==win)return;
       persistNow();
       detachNetwork();
       if (netTimer) {
@@ -548,7 +589,7 @@ async function openPreviewWindowInner(opts = {}) {
         netTimer = null;
       }
       previewWin = null;
-      guestView = null;
+      guestWc()?.close();guestView = null;
       ownerWin = null;
       lastTitle = "";
       lastUrl = "about:blank";
@@ -572,13 +613,14 @@ async function openPreviewWindowInner(opts = {}) {
     win.show();
     win.focus();
     writeCrashLog("preview", "chrome-shown");
-    guestView = createGuest();
+    const freshGuest=!guestView;
+    guestView ||= createGuest();
     writeCrashLog("preview", "guest-created");
     win.contentView.addChildView(guestView);
     writeCrashLog("preview", "guest-attached");
     layoutGuest();
     const guestWcRef = guestView.webContents;
-    setImmediate(() => {
+    if(freshGuest)setImmediate(() => {
       try {
         if (!guestWcRef || guestWcRef.isDestroyed()) return;
         attachGuestNetwork(guestWcRef);
@@ -616,8 +658,15 @@ async function openPreviewWindowInner(opts = {}) {
 }
 
 export function closePreviewWindow() {
-  if (!isLive()) return false;
+  if (!isLive()&&!dockChrome) return false;
   persistNow();
+  if(dockOwner) {
+    releaseDockHost();guestWc()?.close();guestView=null;ownerWin=null;
+    detachNetwork();if(netTimer)clearTimeout(netTimer);netTimer=null;
+    lastUrl='about:blank';lastTitle='';lastError='';loading=false;
+    networkLog=new PreviewNetworkLog();bottomHeight=0;sideWidth=0;
+    emitChrome();return true;
+  }
   previewWin.close();
   return true;
 }
@@ -630,7 +679,7 @@ export function applyPreviewTheme(theme) {
     /* ignore */
   }
   if (isLive()) {
-    previewWin.setBackgroundColor(t === "light" ? "#f3f3f7" : "#0c0c0f");
+    getPreviewWindow()?.setBackgroundColor(bootBackground(t));
   }
 }
 
@@ -727,7 +776,7 @@ export async function sendPreviewCaptureToChat() {
     title: lastTitle,
     text: formatPreviewCapturePrompt({ url: lastUrl, title: lastTitle }),
   };
-  owner.webContents.send("preview:viewport-capture", payload);
+  if(captureSender)await captureSender(payload);else owner.webContents.send("preview:viewport-capture", payload);
   return {
     sent: true,
     width: shot.width,
@@ -761,7 +810,72 @@ export async function screenshotPreview() {
 
 function fromChrome(event) {
   const wc = event?.sender;
-  return Boolean(isLive() && wc && wc === previewWin.webContents);
+  return Boolean(isLive() && wc && wc === chromeWc());
+}
+
+function releaseDockHost() {
+  if(dockOwner&&!dockOwner.isDestroyed()) {
+    if(guestView)dockOwner.contentView.removeChildView(guestView);
+    if(dockChrome)dockOwner.contentView.removeChildView(dockChrome);
+  }
+  dockChrome?.webContents.close();dockChrome=null;dockOwner=null;dockBounds=null;dockVisible=false;
+}
+
+async function openDockedPreview(owner,url) {
+  if(dockOpening)await dockOpening;
+  if(dockOwner!==owner || !dockChrome) {
+    writeCrashLog('preview','dock-host',{visible:owner.isVisible(),minimized:owner.isMinimized()});
+    if(owner.isMinimized())owner.restore();
+    if(!owner.isVisible())owner.show();
+    await new Promise(resolve=>setImmediate(resolve));
+    persistNow();releaseDockHost();
+    if(getPreviewWindow()) {
+      const old=previewWin;previewWin=null;
+      if(guestView)old.contentView.removeChildView(guestView);
+      old.destroy();
+    }
+    const [hostWidth,hostHeight]=owner.getContentSize();
+    dockOwner=owner;dockBounds={x:Math.max(0,hostWidth-560),y:60,width:Math.min(560,hostWidth),height:Math.max(1,hostHeight-60)};dockVisible=false;
+    writeCrashLog('preview','dock-chrome-create');
+    dockChrome=new WebContentsView({webPreferences:{preload:path.join(__dirname,'preview','preview-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+    writeCrashLog('preview','dock-chrome-created');
+    dockChrome.setBounds(dockBounds);dockChrome.setVisible(false);owner.contentView.addChildView(dockChrome);
+    writeCrashLog('preview','dock-chrome-attached');
+    const freshGuest=!guestView;guestView ||= createGuest();
+    guestView.setVisible(false);owner.contentView.addChildView(guestView);
+    layoutGuest();
+    writeCrashLog('preview','dock-guest-attached');
+    owner.once('closed',()=>{if(dockOwner===owner)closePreviewWindow();});
+    const chrome=dockChrome;
+    writeCrashLog('preview','dock-chrome-loading');
+    dockOpening=chrome.webContents.loadFile(path.join(__dirname,'preview','index.html'),{query:{theme:themeFromState(),docked:'1'}});
+    try {await dockOpening;}finally{dockOpening=null;}
+    chrome.webContents.setZoomFactor(owner.webContents.getZoomFactor());
+    writeCrashLog('preview','dock-chrome-loaded');
+    if(freshGuest) {
+      await guestView.webContents.loadURL('about:blank');
+      writeCrashLog('preview','dock-network-attach');
+      attachGuestNetwork(guestView.webContents);
+      writeCrashLog('preview','dock-network-attached');
+    }
+  }
+  claimPreviewOwner(owner);emitChrome({reveal:true});
+  const wanted=url || (lastUrl!=='about:blank'?lastUrl:'') || readState?.()?.previewLastUrl;
+  if(wanted&&wanted!==lastUrl)await loadGuest(wanted);
+  writeCrashLog('preview','dock-viewport');
+  applyViewport();writeCrashLog('preview','dock-ready');return previewPublicState();
+}
+
+export function layoutDockedPreview(owner,rect,visible=true) {
+  if(owner!==dockOwner||!dockChrome)return false;
+  const zoom=owner.webContents.getZoomFactor();
+  const [maxW,maxH]=owner.getContentSize();
+  if(!rect||![rect.x,rect.y,rect.width,rect.height].every(Number.isFinite))return false;
+  const x=Math.max(0,Math.round(rect.x*zoom)),y=Math.max(0,Math.round(rect.y*zoom));
+  dockBounds={x,y,width:Math.max(1,Math.min(maxW-x,Math.round(rect.width*zoom))),height:Math.max(1,Math.min(maxH-y,Math.round(rect.height*zoom)))};
+  dockVisible=Boolean(visible&&rect.width>1&&rect.height>1);
+  if(dockChrome.webContents.getURL())dockChrome.webContents.setZoomFactor(zoom);
+  layoutGuest();return true;
 }
 
 function debounce(fn, ms) {
@@ -784,6 +898,8 @@ function debounce(fn, ms) {
  * @param {(win: import('electron').BrowserWindow) => boolean} [hooks.ownerHasProject]
  */
 export function registerPreviewIpc(hooks) {
+  const ipcMain=hooks.ipc||nativePreviewIpc;
+  captureSender=hooks.sendCapture||null;
   if (ipcReady) return;
   ipcReady = true;
   readState = hooks.loadState;
@@ -792,15 +908,19 @@ export function registerPreviewIpc(hooks) {
   ownerHasProject =
     typeof hooks.ownerHasProject === "function" ? hooks.ownerHasProject : null;
 
+  ipcMain.handle('preview:dock-layout',(e,rect,visible)=>layoutDockedPreview(hooks.getOwner(e),rect,visible));
+  ipcMain.handle('preview:dock-hide',e=>{const owner=hooks.getOwner(e);if(owner===dockOwner){dockVisible=false;dockChrome?.setVisible(false);guestView?.setVisible(false);}return true;});
+  ipcMain.handle('preview:chrome-zoom',(e,value)=>{if(!fromChrome(e))return 1;return guestWc()?.desktopZoom?.apply(value)||1;});
+  ipcMain.on('preview:step-zoom',(e,direction)=>{const wc=guestWc();if(wc&&(e.sender===wc||fromChrome(e))&&['in','out','reset'].includes(direction))wc.desktopZoom?.apply(direction==='reset'?1:stepZoom(wc.getZoomFactor(),direction));});
+  ipcMain.on('preview:focus-address',e=>{if(e.sender!==guestWc())return;chromeWc()?.focus();void chromeWc()?.executeJavaScript("document.getElementById('url').focus();document.getElementById('url').select();");});
+
   ipcMain.handle("preview:open", async (e, opts = {}) => {
     const owner =
       hooks.getOwner(e) ||
       BrowserWindow.fromWebContents(e.sender) ||
       null;
-    return openPreviewWindow({
-      owner,
-      url: typeof opts?.url === "string" ? opts.url : "",
-    });
+    try {return await openPreviewWindow({owner,url:typeof opts?.url==='string'?opts.url:''});}
+    catch(error){if(lastError&&isLive())return previewPublicState();throw error;}
   });
 
   ipcMain.handle("preview:close", async () => closePreviewWindow());
@@ -915,3 +1035,5 @@ export function registerPreviewIpc(hooks) {
     return networkLog.preserveLog;
   });
 }
+
+export function isPreviewChromeContents(wc){return wc===chromeWc();}

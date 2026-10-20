@@ -18,7 +18,7 @@ export async function handlePreviewMcpMessage(msg, opts = {}) {
   const { id, method, params } = msg;
   const owner = opts.owner || null;
   const ownerStamped = Boolean(opts.ownerStamped);
-  const dispatch = (req) => dispatchPreviewApi({ ...req, owner, ownerStamped });
+  const dispatch = (req) => dispatchPreviewApi({ ...req, owner, ownerStamped, executionId:opts.executionId });
   if (method === "initialize") {
     return {
       jsonrpc: "2.0",
@@ -73,7 +73,7 @@ export async function handlePreviewMcpMessage(msg, opts = {}) {
 }
 
 export const PREVIEW_SESSION_RULE = [
-  "You are in Grok Desktop. The Preview window is how the user sees and tests the UI.",
+  "You are in Grok Desktop. The Browser panel is how the user sees and tests the UI.",
   "Read the page with desktop-preview__preview_snapshot (text). preview_open, click, fill, and press already return that text snapshot.",
   "Do not call preview_screenshot. For layout/CSS pixels the user sends a viewport capture from the Preview window (Send screenshot).",
   "Interact: desktop-preview__preview_click, desktop-preview__preview_fill, desktop-preview__preview_press, desktop-preview__preview_fill_form.",

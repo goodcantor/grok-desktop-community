@@ -1,3 +1,5 @@
+import { FileRoots } from "./files/FileRoots";
+import {GitReview} from './GitReview';
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   isLexicallyUnder,
@@ -11,6 +13,7 @@ import { hasAnyTasks, runningTaskCount } from "../lib/background-tasks";
 import { usePrivacy } from "../lib/privacy-context";
 import { stripAnsi } from "../lib/tool-display";
 import { ColToggle } from "./ColToggle";
+import {BrowserPanel} from './BrowserPanel';
 import { FileBrowser, useProjectFiles } from "./files/FileBrowser";
 import { FilePeek } from "./files/FilePeek";
 import { useFileDocument } from "./files/useFileDocument";
@@ -21,7 +24,7 @@ import {
   type GitStatusEntry,
 } from "./files/types";
 
-type PanelTab = "files" | "changes";
+type PanelTab = "files" | "changes" | "browser";
 
 /**
  * Right rail: project file browser + git Changes + background Tasks dock.
@@ -29,6 +32,8 @@ type PanelTab = "files" | "changes";
  */
 export const SidePanel = memo(function SidePanel({
   project,
+  windowId,
+  sessionId,
   backgroundTasks,
   sessionMode,
   onDirtyChange,
@@ -37,6 +42,8 @@ export const SidePanel = memo(function SidePanel({
   inert: shellInert,
 }: {
   project: string | null;
+  windowId?:number;
+  sessionId?:string|null;
   backgroundTasks: BackgroundTask[];
   /** e.g. "plan" when plan mode is active */
   sessionMode: string | null;
@@ -49,7 +56,7 @@ export const SidePanel = memo(function SidePanel({
   const running = runningTaskCount(backgroundTasks);
   const hasTasks = hasAnyTasks(backgroundTasks);
   const [tasksOpen, setTasksOpen] = useState(false);
-  const [tab, setTab] = useState<PanelTab>("files");
+  const [tab, setTab] = useState<PanelTab>(()=>{const value=localStorage.getItem('grok-panel-tab');return value==='changes'||value==='browser'?value:'files';});
   const [hideIgnored, setHideIgnored] = useState(true);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [editorLabel, setEditorLabel] = useState("editor");
@@ -81,9 +88,8 @@ export const SidePanel = memo(function SidePanel({
     }
   }, []);
 
-  useEffect(() => {
-    setTab("files");
-  }, [project]);
+  useEffect(()=>{localStorage.setItem('grok-panel-tab',tab);document.dispatchEvent(new CustomEvent('grok:panel-selected',{detail:tab}));},[tab]);
+  useEffect(()=>{const select=(event:Event)=>{const next=(event as CustomEvent).detail;if(next==='files'||next==='changes'||next==='browser')setTab(next);};document.addEventListener('grok:panel-tab',select);return()=>document.removeEventListener('grok:panel-tab',select);},[]);
 
   useEffect(() => {
     const refreshEditors = () => {
@@ -130,7 +136,7 @@ export const SidePanel = memo(function SidePanel({
 
   const openLinkedFile = useCallback(
     (absPath: string) => {
-      if (!project || !isLexicallyUnder(project, absPath)) return false;
+      if (!project) return false;
       const current = peekRef.current.doc;
       if (
         current?.kind === "file" &&
@@ -159,6 +165,10 @@ export const SidePanel = memo(function SidePanel({
     [project],
   );
 
+  useEffect(()=>{
+    const open=(event:Event)=>{const path=(event as CustomEvent).detail;if(typeof path==='string'){setTab('files');openLinkedFile(path);}};
+    document.addEventListener('grok:open-validated-file',open);return()=>document.removeEventListener('grok:open-validated-file',open);
+  },[openLinkedFile]);
   const selectFile = (file: FileEntry) => {
     if (file.isDirectory) {
       void files.loadDir(file.path);
@@ -222,9 +232,7 @@ export const SidePanel = memo(function SidePanel({
               if (project) void files.reloadCurrent();
               return;
             }
-            if (!peek.confirmLeave()) return;
             setTab("files");
-            peek.reset();
           }}
         >
           Files
@@ -239,21 +247,23 @@ export const SidePanel = memo(function SidePanel({
               if (project) void files.loadChanges(project);
               return;
             }
-            if (!peek.confirmLeave()) return;
             setTab("changes");
-            peek.reset();
             if (project) void files.loadChanges(project);
           }}
         >
           {changesLabel}
         </button>
+        <button type="button" role="tab" aria-selected={tab==='browser'} className={tab==='browser'?'active':''} onClick={()=>setTab('browser')}>Browser</button>
+        <button type="button" className="panel-close" aria-label="Close side panel" title="Close side panel" onClick={onToggleCollapsed}>×</button>
           </>
         )}
       </div>
       {collapsed ? null : (
       <>
+      {tab==='browser'?<BrowserPanel windowId={windowId} sessionId={sessionId} inert={shellInert}/>:tab==='changes'?<GitReview project={project} onFile={absPath=>{setTab('files');selectFile({name:absPath.split(/[\\/]/).pop()||'',path:absPath,isDirectory:false});}}/>:<>
       <div className="panel-main">
         <div className="panel-body">
+          {tab==='files'&&<FileRoots project={project} onNavigate={dir=>void files.loadDir(dir)}/>}
           {sessionMode === "plan" ? (
             <div className="mode-banner plan-mode-banner" role="status">
               Plan mode — file edits blocked until you approve a plan
@@ -312,6 +322,7 @@ export const SidePanel = memo(function SidePanel({
           />
         ) : null}
       </div>
+      </>}
 
       <div
         className={[

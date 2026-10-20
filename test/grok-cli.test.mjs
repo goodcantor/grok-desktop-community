@@ -40,6 +40,17 @@ import {
   versionFromData,
 } from "../electron/grok-cli.mjs";
 
+// POSIX can execute a shebang. On Windows use Node's preload entry point,
+// keeping runGrok's shell:false contract and the same fixture argv/body.
+function fixtureBin(script,t){
+  if(process.platform!=='win32')return script;
+  const previous=process.env.NODE_OPTIONS,preload=script+'.cjs';
+  fs.writeFileSync(preload,'process.argv.splice(1,0,"fixture");\nconsole.log=value=>require("node:fs").writeSync(1,String(value)+"\\n");\n'+fs.readFileSync(script,'utf8').replace(/^#![^\n]*\n/,''));
+  process.env.NODE_OPTIONS=`--require "${preload.replaceAll(String.fromCharCode(92),'/')}"`;
+  t.after(()=>{if(previous===undefined)delete process.env.NODE_OPTIONS;else process.env.NODE_OPTIONS=previous;});
+  return process.execPath;
+}
+
 test("parseGrokJson reads a bare object", () => {
   assert.deepEqual(parseGrokJson('{"currentVersion":"1.0.3"}'), {
     currentVersion: "1.0.3",
@@ -464,7 +475,7 @@ test("mcpCredentialServerNames reads names from name:url keys and never needs va
   assert.equal(JSON.stringify([...names]).includes("SECRET"), false);
 });
 
-test("listMcpServers result never includes raw data/stdout or env secrets", async () => {
+test("listMcpServers result never includes raw data/stdout or env secrets", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "grok-mcp-"));
   const bin = path.join(dir, "grok");
   fs.writeFileSync(
@@ -479,7 +490,7 @@ process.exit(2);
 `,
   );
   fs.chmodSync(bin, 0o755);
-  const res = await listMcpServers({ bin, timeoutMs: 8000 });
+  const res = await listMcpServers({ bin:fixtureBin(bin,t), timeoutMs: 8000 });
   assert.equal(res.ok, true);
   assert.equal(res.source, "list");
   assert.equal(res.servers.length, 3);
@@ -516,7 +527,7 @@ test("mapMcpServerRow is defensive on inspect-shaped and unknown fields", () => 
   assert.deepEqual(mcpServersFromData("nope"), []);
 });
 
-test("listMcpServers falls back to inspect when list JSON is empty", async () => {
+test("listMcpServers falls back to inspect when list JSON is empty", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "grok-mcp-"));
   const bin = path.join(dir, "grok");
   fs.writeFileSync(
@@ -537,7 +548,7 @@ process.exit(2);
 `,
   );
   fs.chmodSync(bin, 0o755);
-  const res = await listMcpServers({ bin, timeoutMs: 8000 });
+  const res = await listMcpServers({ bin:fixtureBin(bin,t), timeoutMs: 8000 });
   assert.equal(res.ok, true);
   assert.equal(res.source, "inspect");
   assert.equal(res.servers[0]?.name, "from-inspect");
@@ -679,7 +690,7 @@ test("mapPluginRow is defensive on inspect-shaped and unknown fields", () => {
   assert.deepEqual(pluginsFromData("nope"), []);
 });
 
-test("listPlugins result never includes raw data/stdout or component inventory", async () => {
+test("listPlugins result never includes raw data/stdout or component inventory", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "grok-plugin-"));
   const bin = path.join(dir, "grok");
   fs.writeFileSync(
@@ -694,7 +705,7 @@ process.exit(2);
 `,
   );
   fs.chmodSync(bin, 0o755);
-  const res = await listPlugins({ bin, timeoutMs: 8000 });
+  const res = await listPlugins({ bin:fixtureBin(bin,t), timeoutMs: 8000 });
   assert.equal(res.ok, true);
   assert.equal(res.source, "list");
   assert.equal(res.plugins.length, 2);
@@ -706,7 +717,7 @@ process.exit(2);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("listPlugins falls back to inspect when list JSON is unparseable", async () => {
+test("listPlugins falls back to inspect when list JSON is unparseable", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "grok-plugin-"));
   const bin = path.join(dir, "grok");
   fs.writeFileSync(
@@ -727,7 +738,7 @@ process.exit(2);
 `,
   );
   fs.chmodSync(bin, 0o755);
-  const res = await listPlugins({ bin, timeoutMs: 8000 });
+  const res = await listPlugins({ bin:fixtureBin(bin,t), timeoutMs: 8000 });
   assert.equal(res.ok, true);
   assert.equal(res.source, "inspect");
   assert.equal(res.plugins[0]?.name, "from-inspect");
@@ -736,7 +747,7 @@ process.exit(2);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("listPlugins empty installed list does not fall back to inspect", async () => {
+test("listPlugins empty installed list does not fall back to inspect", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "grok-plugin-"));
   const bin = path.join(dir, "grok");
   fs.writeFileSync(
@@ -757,14 +768,14 @@ process.exit(2);
 `,
   );
   fs.chmodSync(bin, 0o755);
-  const res = await listPlugins({ bin, timeoutMs: 8000 });
+  const res = await listPlugins({ bin:fixtureBin(bin,t), timeoutMs: 8000 });
   assert.equal(res.ok, true);
   assert.equal(res.source, "list");
   assert.deepEqual(res.plugins, []);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("listMcpServers falls back to inspect when list JSON is unparseable", async () => {
+test("listMcpServers falls back to inspect when list JSON is unparseable", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "grok-mcp-"));
   const bin = path.join(dir, "grok");
   fs.writeFileSync(
@@ -785,7 +796,7 @@ process.exit(2);
 `,
   );
   fs.chmodSync(bin, 0o755);
-  const res = await listMcpServers({ bin, timeoutMs: 8000 });
+  const res = await listMcpServers({ bin:fixtureBin(bin,t), timeoutMs: 8000 });
   assert.equal(res.ok, true);
   assert.equal(res.source, "inspect");
   assert.equal(res.servers[0]?.name, "from-inspect");

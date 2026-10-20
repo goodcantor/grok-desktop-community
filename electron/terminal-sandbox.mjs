@@ -1036,8 +1036,8 @@ function probeSandboxUncached() {
     }
 
     // Without bwrap, Docker and WSL bind-mounts on Windows often hang forever
-    // on large git repos (G:\Docker\…). Use the host shell (Git Bash) so tools
-    // complete; path gates still limit cwd. Full FS jail needs WSL+bwrap.
+    // on large git repos (G:\Docker\…). Report isolation unavailable. Host access requires explicitly disabling
+    // the sandbox preference. Full FS jail needs WSL+bwrap.
     // Opt into Docker with GROK_DESKTOP_ALLOW_DOCKER_SANDBOX=1 if you need it.
     const docker = findDocker();
     if (
@@ -1055,7 +1055,7 @@ function probeSandboxUncached() {
     }
 
     return result({
-      available: true,
+      available: false,
       backend: "win-host",
       detail:
         "Windows host shell (no WSL+bwrap jail). Docker/WSL sandboxes skipped — they hang on bind-mounted git repos. Install bubblewrap in WSL for a real jail.",
@@ -1224,19 +1224,6 @@ export function planSandboxedSpawn(opts) {
 
   if (probe.backend === "wsl-bwrap") {
     return planWslBwrap({ probe, projectRoot, cwd, env, inner });
-  }
-
-  if (probe.backend === "win-host") {
-    // Identity plan: host Git Bash / cmd. Sandbox toggle stays on for UX, but
-    // isolation is path-gate only (same as Host shell for process FS).
-    return {
-      file: opts.file,
-      fileArgs: opts.fileArgs,
-      shell: Boolean(opts.shell),
-      cwd,
-      env,
-      backend: "win-host",
-    };
   }
 
   if (probe.backend === "docker") {

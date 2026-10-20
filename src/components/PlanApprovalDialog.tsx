@@ -22,7 +22,9 @@ export type PlanApprovalDecision =
 export function PlanApprovalDialog({
   request,
   onRespond,
+  inline = false,
 }: {
+  inline?: boolean;
   request: PlanApprovalRequest | null;
   onRespond: (reqId: string, decision: PlanApprovalDecision) => void;
 }) {
@@ -44,7 +46,7 @@ export function PlanApprovalDialog({
     if (!request) return;
     const reqId = request.reqId;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (inline || e.key !== "Escape") return;
       e.preventDefault();
       onRespondRef.current(reqId, { type: "abandoned" });
     };
@@ -82,14 +84,14 @@ export function PlanApprovalDialog({
 
   return (
     <div
-      className="modal-backdrop plan-approval-backdrop"
+      className={inline ? "inline-gate" : "modal-backdrop plan-approval-backdrop"}
       role="presentation"
-      data-modal-layer="overlay"
+      data-modal-layer={inline ? undefined : "overlay"}
     >
       <div
         className="modal-dialog plan-approval-dialog"
         role="dialog"
-        aria-modal="true"
+        aria-modal={inline ? undefined : true}
         aria-labelledby="plan-approval-title"
       >
         <div className="modal-header">

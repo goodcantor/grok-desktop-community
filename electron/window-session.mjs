@@ -1,3 +1,6 @@
+import { assertApplicationSender } from './ipc-trust.mjs';
+import fs from 'node:fs';
+import { mapInterjectIpcError } from '../shared/acp-interject.mjs';
 /**
  * Per-window agent sessions for File → New Window.
  *
@@ -28,6 +31,78 @@ import {
   shouldFallbackToNewSession,
 } from "./agent-restart.mjs";
 import { settleParked, wrapParked } from "./parked-request.mjs";
+import { createExecutionHost, executionScope, resolveOwnedExecution, findExecution } from "./execution-ownership.mjs";
+import { ExecutionQueue } from "./execution-queue.mjs";
+import { readQueue, writeQueue } from "./queue-store.mjs";
+import { applySessionUpdate, appendUserMessage } from "../shared/session-timeline.mjs";
+
+export function allExecutionSessions() { return [...windowSessions.values()].flatMap(host => [...(host.records?.values() || [host])]); }
+export function executionCatalog(host) {
+  return [...(host.records?.values() || [])].filter(row => row.lastSessionId).map(row => ({
+    ...executionScope(row), cwd: row.lastCwd, active: Boolean(row.queue?.running || row.agent?.getRunState().active),
+    waiting: pendingPermissionCount(ownerIdFor(row)) + ['pendingPlanApprovals','pendingUserQuestions','pendingFolderTrust','pendingMcpElicits'].reduce((n,key)=>n+row[key].size,0),
+    status: row.runtimeStatus, unseen: row.unseen, selected: host.selected === row,
+  }));
+}
+export function publishExecutions(ws) {
+  const host = ws.host || ws;
+  if (!host.win.isDestroyed()) host.win.webContents.send('execution:catalog', executionCatalog(host));
+  try {
+    const file=path.join(app.getPath('userData'),'execution-state.json'),temporary=file+'.tmp';
+    const windows=[...windowSessions.values()].map(owner=>({windowId:owner.win.id,chats:executionCatalog(owner)}));
+    fs.writeFileSync(temporary,JSON.stringify({pid:process.pid,updatedAt:Date.now(),windows}));fs.renameSync(temporary,file);
+  }catch{/* Runtime status is disposable; a locked diagnostic file must not interrupt a task. */}
+}
+export function selectExecution(record) {
+  const host=record.host;
+  if (!host) return;
+  if(host.selected!==record)host.selected?.previewController?.hideExecutionPreview();
+  host.selected=record; record.unseen=false;
+  setWindowTitle(record, record.lastCwd);
+  publishExecutions(record);
+}
+export function scopedExecutionIpc(nativeIpc,{isClosing=()=>false}={}) {
+  return new Proxy(nativeIpc, { get(target, key) {
+    if(key === 'on')return (channel,handler)=>target.on(channel,(event,...args)=>{try{assertTrustedShellEvent(event);handler(event,...args);}catch{/* Drop untrusted one-way messages. */}});
+    if(key !== 'handle') { const value=target[key]; return typeof value==='function'?value.bind(target):value; }
+    return (channel, handler) => target.handle(channel, async (event, ...args) => {
+      assertTrustedShellEvent(event);
+      if(isClosing()&&/^(agent:|execution:submit|execution:queue-action|project:|sessions:open)/.test(channel))throw Error('Update installation is starting');
+      const last=args.at(-1);
+      if(last && typeof last==='object' && last.__executionScope) { event.executionScope=last.__executionScope; args.pop(); }
+      if(event.executionScope) sessionFromEvent(event); // Validate even handlers which do not consult their owner.
+      if(['agent:set-model','agent:set-reasoning-effort','agent:set-context-window','agent:set-session-mode','agent:compact'].includes(channel)) {
+        const record=sessionFromEvent(event);
+        if(record?.lastCwd&&!record.agent?.ready)await ensureAgent(record,record.lastCwd,{resumeSessionId:record.lastSessionId});
+      }
+      return handler(event, ...args);
+    });
+  }});
+}
+export function ensureExecutionQueue(ws) {
+  if (ws.queue) return ws.queue;
+  const key=ws.lastCwd+'\0'+ws.lastSessionId;
+  ws.queue = new ExecutionQueue({
+    initial: readQueue(key),
+    persist: items => writeQueue(key,items),
+    changed: state => { ws.runtimeStatus=state.running?'running':state.outcome?.status||'idle'; send(ws,'execution:queue',state); publishExecutions(ws); },
+    cancel: () => { clearPendingPermissions(ws); ws.agent?.cancel(); },
+    interject: async item => {try{return await ws.agent.interject(item.text, {images:item.images||[],imageQuality:item.imageQuality,interjectionId:item.id});}catch(error){const mapped=mapInterjectIpcError(error,item.id);if(mapped)return mapped;throw error;}},
+    deliver: async item => {
+      const agent=await ensureAgent(ws,ws.lastCwd,{resumeSessionId:ws.lastSessionId});
+      ws.readOnly=false;
+      ws.liveItems=appendUserMessage(ws.liveItems||[],{text:item.timelineText||item.text,images:(item.images||[]).map(img=>({mimeType:img.mimeType,previewUrl:`data:${img.mimeType};base64,${img.data}`})),optimistic:true});
+      send(ws,'execution:delivered',{item});
+      try { const reply=await agent.prompt(item.text,{images:item.images||[],imageQuality:item.imageQuality||'compact'}); ws.unseen=ws.host?.selected!==ws; if(reply?.stopReason!=='cancelled')taskNotifier.show(ws,{kind:'complete',key:item.id}); return reply; }
+      catch(error) { ws.unseen=true; taskNotifier.show(ws,{kind:'failed',key:item.id}); throw error; }
+    },
+  });
+  return ws.queue;
+}
+
+
+let taskNotifier={show:()=>false,dismiss:()=>{}};
+export function setTaskNotifier(notifier){taskNotifier=notifier;}
 
 /**
  * Desktop state loader — set once from main at startup.
@@ -106,7 +181,7 @@ export const windowSessions = new Map();
 
 /** @returns {string} */
 export function ownerIdFor(ws) {
-  return String(ws.win.id);
+  return ws.recordId ? `${ws.win.id}:${ws.recordId}` : String(ws.win.id);
 }
 
 /**
@@ -126,12 +201,20 @@ export function isSessionLive(ws, generation) {
  * @param {import('electron').IpcMainInvokeEvent | { sender?: Electron.WebContents }} event
  * @returns {WindowSession | null}
  */
+export function assertTrustedShellEvent(event) {
+  const win=BrowserWindow.fromWebContents(event?.sender);
+  assertApplicationSender(event,{window:win,appPath:app.getAppPath(),developmentUrl:!app.isPackaged ? process.env.GROK_DESKTOP_DEV_URL || 'http://127.0.0.1:5173/' : undefined});
+  if(!windowSessions.has(win.id))throw Error('Unknown application window');
+  return win;
+}
+
 export function sessionFromEvent(event) {
   const wc = event?.sender;
   if (!wc || wc.isDestroyed?.()) return null;
   const win = BrowserWindow.fromWebContents(wc);
   if (!win || win.isDestroyed()) return null;
-  return windowSessions.get(win.id) || null;
+  const host=windowSessions.get(win.id);
+  return host ? resolveOwnedExecution(host, event.executionScope) : null;
 }
 
 /** Focused window's session, else the first open window. */
@@ -153,7 +236,8 @@ export function focusedSession() {
 export function trackWindowSession(ws) {
   windowSessions.set(ws.win.id, ws);
   ws.win.on("closed", () => {
-    void disposeWindowSession(ws);
+    ws.closed=true;
+    for(const record of ws.records?.values() || [ws]) void disposeWindowSession(record);
     windowSessions.delete(ws.win.id);
   });
   return ws;
@@ -167,8 +251,17 @@ export function trackWindowSession(ws) {
  */
 export function send(ws, channel, payload) {
   if (!ws?.win || ws.win.isDestroyed()) return;
+  if(channel==='agent:exit'||channel==='agent:error')ws.runtimeStatus='failed';
+  if(channel==='agent:ready')ws.runtimeStatus=ws.queue?.running?'running':'idle';
+  if (ws.host && (channel.startsWith('agent:') || channel.startsWith('execution:'))) {
+    if(channel==='agent:session-update') ws.liveItems=applySessionUpdate(ws.liveItems||[],payload);
+    ws.win.webContents.send('execution:event',{scope:executionScope(ws),channel,payload});
+    if(/request|dismiss|exit|error|ready|permissions-cleared/.test(channel)) publishExecutions(ws);
+    if(ws.host.selected!==ws) return;
+  }
+  if(["agent:ready","agent:exit","agent:error"].includes(channel))ws.lastConnectionEvent={type:channel.slice(6),at:new Date().toISOString()};
   try {
-    ws.win.webContents.send(channel, payload);
+    ws.win.webContents.send(channel, ws.host && payload && typeof payload==='object' && (channel.startsWith('agent:')||channel.startsWith('execution:')) ? {...payload,_executionScope:executionScope(ws)} : payload);
   } catch (err) {
     debugLog("ipc", "send-failed", {
       channel,
@@ -184,7 +277,7 @@ export function send(ws, channel, payload) {
 export function collectOpenCheckouts() {
   /** @type {{ windowId: number, cwd: string, title: string }[]} */
   const rows = [];
-  for (const ws of windowSessions.values()) {
+  for (const ws of allExecutionSessions()) {
     if (ws.disposed || !ws.win || ws.win.isDestroyed()) continue;
     const cwd = ws.agent?.cwd || ws.lastCwd || ws.openingCwd;
     if (!cwd) continue;
@@ -207,7 +300,7 @@ export function broadcastOpenCheckouts() {
   }
 }
 
-export const APP_WINDOW_TITLE = "Grok Desktop";
+export const APP_WINDOW_TITLE = "Grok Desktop Community";
 
 /**
  * Native title from session state: project basename, else empty shell.
@@ -338,6 +431,7 @@ function parkAgentGate(ws, agent, ifCurrent, opts) {
         if (timer) clearTimeout(timer);
         timer = null;
         map.delete(reqId);
+        taskNotifier.dismiss(ws,reqId);
         try {
           respond(decision || fallback);
         } catch {
@@ -356,6 +450,7 @@ function parkAgentGate(ws, agent, ifCurrent, opts) {
       );
       map.set(reqId, wrapParked(settle, params));
       send(ws, ipcRequest, { reqId, params });
+      taskNotifier.show(ws,{kind:{plan:'plan',ask:'answer',trust:'trust',elicit:'connector'}[prefix],key:reqId});
       // Re-push once so HMR / late renderer subscribe still show the modal
       // (same idea as permission gates).
       setTimeout(() => {
@@ -373,6 +468,7 @@ function parkAgentGate(ws, agent, ifCurrent, opts) {
  * @param {WindowSession} ws
  */
 export function clearPendingPermissions(ws) {
+  taskNotifier.dismiss(ws);
   const owner = ownerIdFor(ws);
   cancelAllPermissions(undefined, owner);
   const gates = [
@@ -454,6 +550,7 @@ export async function disposeOrphanClient(client) {
  */
 export function ensureAgent(ws, cwd, opts = {}) {
   const run = async () => {
+    if(opts.forceRestart || (ws.agent&&!ws.agent.ready))ws.generation++;
     const gen = ws.generation;
     if (!isSessionLive(ws, gen)) {
       throw new Error("Window closed");
@@ -498,13 +595,13 @@ export function ensureAgent(ws, cwd, opts = {}) {
         return agent;
       }
       if (resumeSessionId && resumeSessionId === agent.sessionId) {
-        agent.setAllowWritesThisSession(false);
+        if(!opts.preserveSessionState)agent.setAllowWritesThisSession(false);
         rememberProjectOnWindow(ws, cwd, agent.sessionId);
         restartBackgroundTaskTail(ws, cwd, agent.sessionId);
         return agent;
       }
       if (!resumeSessionId && !forceNew) {
-        agent.setAllowWritesThisSession(false);
+        if(!opts.preserveSessionState)agent.setAllowWritesThisSession(false);
         rememberProjectOnWindow(ws, cwd, agent.sessionId);
         restartBackgroundTaskTail(ws, cwd, agent.sessionId);
         return agent;
@@ -535,6 +632,7 @@ export function ensureAgent(ws, cwd, opts = {}) {
       sandboxTerminal: state.sandboxTerminal !== false,
       clientVersion: app.getVersion(),
       windowId: ws.win?.id,
+      previewExecutionId: ws.recordId,
     });
 
     if (!isSessionLive(ws, gen)) {
@@ -606,6 +704,7 @@ export function ensureAgent(ws, cwd, opts = {}) {
           onSettled: (id, outcome) => {
             debugLog("permission", "respond", { reqId: id, outcome });
             if (ws.agent === agent) {
+              taskNotifier.dismiss(ws,id);
               send(ws, "agent:permission-dismiss", { reqId: id });
             }
           },
@@ -623,6 +722,7 @@ export function ensureAgent(ws, cwd, opts = {}) {
         // JSON-RPC is still answered once (pending map). Re-push the UI event once
         // so HMR / late renderer subscribe still show the approval card.
         send(ws, "agent:permission-request", request);
+        taskNotifier.show(ws,{kind:'permission',key:reqId});
         setTimeout(() => {
           if (ws.agent !== agent) return;
           if (pendingPermissionCount(owner) === 0) return;
@@ -633,7 +733,7 @@ export function ensureAgent(ws, cwd, opts = {}) {
         }, 750);
         // Make escalations unmissable when the window is in the background.
         try {
-          if (ws.win && !ws.win.isDestroyed()) {
+          if (ws.win && !ws.win.isDestroyed() && !ws.win.isFocused() && loadDesktopState().notifications?.enabled!==false) {
             if (typeof ws.win.flashFrame === "function") {
               ws.win.flashFrame(true);
             }
@@ -738,6 +838,10 @@ export function ensureAgent(ws, cwd, opts = {}) {
 
 export function disposeWindowSession(ws) {
   if (ws.disposed) return;
+  ws.queue?.dispose();
+  ws.disposePreview?.();
+  for(const dispose of ws.terminalDisposers||[])try{dispose();}catch{}
+  ws.terminalDisposers=[];
   ws.disposed = true;
   ws.generation = (ws.generation || 0) + 1;
   try {
@@ -779,7 +883,7 @@ export function disposeWindowSession(ws) {
  * Tear down every window agent without blocking quit (auto-update / before-quit).
  */
 export function disposeAgentQuick() {
-  for (const ws of [...windowSessions.values()]) {
+  for (const ws of allExecutionSessions()) {
     disposeWindowSession(ws);
   }
 }
@@ -816,11 +920,32 @@ export async function openSessionOnWindow(ws, opts) {
     resumeSessionId = opts.sessionId;
   }
 
+  const host=ws.host;
+  if(host) {
+    const existing=findExecution(windowSessions.values(),cwd,resumeSessionId);
+    if(existing && existing.host!==host) {
+      existing.win.show(); existing.win.focus(); selectExecution(existing);
+      send(existing,'app:select-execution',{cwd,sessionId:resumeSessionId});
+      throw Error('This chat is already open in another window. Switched to its owner.');
+    }
+    if(existing) ws=existing;
+    else if(ws.lastSessionId || ws.agent) ws=host.create();
+    ws.lastCwd=cwd;
+    if(resumeSessionId) ws.lastSessionId=resumeSessionId;
+    selectExecution(ws);
+    // Native history is readable without launching an agent.
+    if(resumeSessionId && !ws.agent && opts.loadState) {
+      const loaded=opts.loadState(cwd,resumeSessionId);
+      ws.readOnly=true; ws.liveItems=loaded.items||[];
+      opts.remember?.(cwd,resumeSessionId);
+      return {modelId:opts.listSessions?.(cwd)?.find(row=>row.id===resumeSessionId)?.modelId||null,cwd,sessionId:resumeSessionId,grokBinary:resolveGrokBinary(),resumed:true,history:ws.liveItems,backgroundTasks:loaded.tasks||[],usage:loaded.usage||null,sessions:opts.listSessions?.(cwd)||[],scope:executionScope(ws),readOnly:true,runState:{active:false}};
+    }
+  }
   const gen = ws.generation;
   let client;
   let resumeWarning = null;
   try {
-    client = await ensureAgent(ws, cwd, { resumeSessionId, forceNew });
+    client = await ensureAgent(ws, cwd, { resumeSessionId, forceNew, preserveSessionState:Boolean(ws.host) });
   } catch (err) {
     if (
       resumeSessionId &&
@@ -840,7 +965,7 @@ export async function openSessionOnWindow(ws, opts) {
       throw err;
     }
   }
-  if (!isSessionLive(ws, gen)) {
+  if (ws.disposed || ws.agent!==client) {
     await disposeOrphanClient(client);
     throw new Error("Window closed");
   }
@@ -861,7 +986,10 @@ export async function openSessionOnWindow(ws, opts) {
     usage = loaded.usage || null;
   }
 
+  if(ws.host) { if(!ws.liveItems) ws.liveItems=history; else history=ws.liveItems; selectExecution(ws); }
   return {
+    scope: ws.host ? executionScope(ws) : undefined,
+    runState: client.getRunState?.(),
     cwd: client.cwd,
     sessionId: client.sessionId,
     grokBinary: client.grokPath,
@@ -934,7 +1062,7 @@ export async function restartAgentOnWindow(ws, opts = {}) {
     resumed = false;
   }
 
-  if (!isSessionLive(ws, gen) || ws.disposed) {
+  if (ws.agent!==client || ws.disposed) {
     await disposeOrphanClient(client);
     throw new Error("Window closed");
   }
@@ -959,7 +1087,10 @@ export async function restartAgentOnWindow(ws, opts = {}) {
     cwd: client.cwd,
     sessionId: client.sessionId,
     grokBinary: client.grokPath,
+    scope: ws.host ? executionScope(ws) : undefined,
+    runState: client.getRunState?.(),
     resumed,
+    availableModels:client._modelsPublic().availableModels,
     modelId: client.currentModelId || null,
     modelName: client.currentModelName || null,
     sessionMode: client.currentModeId || null,
@@ -988,7 +1119,7 @@ export async function applyPermissionModeToAllWindows(mode, prev) {
     /** @type {string | undefined} */
     let lastError;
     let liveCount = 0;
-    for (const other of [...windowSessions.values()]) {
+    for (const other of allExecutionSessions()) {
       if (other.disposed || !other.win || other.win.isDestroyed()) continue;
       const a = other.agent;
       if (!a?.ready || !a.cwd) {
@@ -1042,7 +1173,7 @@ export async function syncPermissionModeLiveToAllWindows(mode) {
   let synced = false;
   /** @type {{ mode: string, agentSynced: boolean, error?: string, restarted?: boolean }} */
   let result = { mode, agentSynced: false, restarted: false };
-  for (const other of windowSessions.values()) {
+  for (const other of allExecutionSessions()) {
     if (other.disposed || !other.agent?.setPermissionMode) continue;
     try {
       result = await other.agent.setPermissionMode(mode);
@@ -1072,7 +1203,7 @@ export function broadcastPermissionMode(mode) {
  * @param {string} mode
  */
 export function flushPendingPermissionsForMode(mode) {
-  for (const ws of windowSessions.values()) {
+  for (const ws of allExecutionSessions()) {
     if (ws.disposed || !ws.win || ws.win.isDestroyed()) continue;
     settlePendingByPolicy(ownerIdFor(ws), {
       permissionMode: mode,
@@ -1112,7 +1243,8 @@ export function createWindowSession(win) {
   win.on("page-title-updated", (e) => {
     e.preventDefault();
   });
-  trackWindowSession(ws);
-  setWindowTitle(ws, null);
-  return ws;
+  const host=createExecutionHost(win, () => ({...ws, agent:null, agentChain:Promise.resolve(), pendingPlanApprovals:new Map(),pendingUserQuestions:new Map(),pendingFolderTrust:new Map(),pendingMcpElicits:new Map(),writesChain:Promise.resolve()}));
+  trackWindowSession(host);
+  setWindowTitle(host, null);
+  return host;
 }

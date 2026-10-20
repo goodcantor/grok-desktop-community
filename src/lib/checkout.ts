@@ -1,4 +1,4 @@
-import type { CheckoutConflict } from "../vite-env";
+import type { CheckoutConflict } from "../types/desktop";
 
 export function isCheckoutConflict(
   res: unknown,

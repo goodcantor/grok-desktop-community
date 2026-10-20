@@ -8,16 +8,9 @@ import {
   shouldReencodeImage,
   type ImageQuality,
 } from "../../shared/image-compress.mjs";
-import type { PromptImage } from "../vite-env";
+import type { PendingImage } from "../types/desktop";
+export type { PendingImage } from "../types/prompt";
 import { uid } from "./timeline";
-
-export type PendingImage = PromptImage & {
-  id: string;
-  previewUrl: string;
-  name?: string;
-  /** Original attach; kept so Higher detail can re-encode this send only. */
-  source?: Blob;
-};
 
 function blobToBase64(blob: Blob): Promise<{ data: string; mimeType: string }> {
   return new Promise((resolve, reject) => {

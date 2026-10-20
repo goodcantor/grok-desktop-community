@@ -48,8 +48,8 @@ test("live: real argv with space", async () => {
   assert.equal(r.buf, "hello world");
 });
 
-test("live: packed python -c", async () => {
-  const r = await runPlan(`/bin/bash -lc 'python3 -c "print(42)"'`, []);
+test("live: packed node -e", async () => {
+  const r = await runPlan(`/bin/bash -lc 'node -e "console.log(42)"'`, []);
   assert.equal(r.code, 0);
   assert.equal(r.buf, "42");
 });
@@ -69,7 +69,7 @@ test("live: apostrophe via bash packing in message", async () => {
 });
 
 test("live: freeform double-quoted message with apostrophe", async () => {
-  const r = await runPlan(`python3 -c "print(\\"don't\\")"`, []);
+  const r = await runPlan(`node -e "console.log(\\"don't\\")"`, []);
   assert.equal(r.code, 0);
   assert.equal(r.buf, "don't");
 });
