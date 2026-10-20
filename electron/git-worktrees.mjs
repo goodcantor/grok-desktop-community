@@ -22,7 +22,7 @@ const CACHE_TTL_MS = 15_000;
  */
 function realpathOrSelf(p) {
   try {
-    return fs.realpathSync(p);
+    return fs.realpathSync.native(p);
   } catch {
     return path.resolve(p);
   }

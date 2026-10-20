@@ -108,7 +108,7 @@ test("listLinkedWorktreeRoots includes git worktree add paths", async (t) => {
 
   clearWorktreeRootCache(repo);
   const roots = listLinkedWorktreeRoots(repo, { refresh: true });
-  assert.ok(roots.some((r) => sameCheckoutPath(r, repo)));
+  assert.ok(roots.some((r) => sameCheckoutPath(r, repo)),JSON.stringify({roots,repo,diagnostic:spawnSync('git',['-C',repo,'worktree','list','--porcelain'],{encoding:'utf8'})}));
   assert.ok(roots.some((r) => sameCheckoutPath(r, sibling)));
 });
 

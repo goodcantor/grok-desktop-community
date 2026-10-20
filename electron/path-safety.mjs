@@ -69,7 +69,7 @@ export function expandUserPath(p) {
  */
 function resolveRealish(resolved) {
   try {
-    return fs.realpathSync(resolved);
+    return fs.realpathSync.native(resolved);
   } catch {
     /* walk up to an existing ancestor */
   }
@@ -83,7 +83,7 @@ function resolveRealish(resolved) {
     }
     tail.unshift(path.basename(cur));
     try {
-      return path.join(fs.realpathSync(parent), ...tail);
+      return path.join(fs.realpathSync.native(parent), ...tail);
     } catch {
       cur = parent;
     }
@@ -120,8 +120,9 @@ function allowedRoots(root, opts = {}) {
   const resolvedRoot = path.resolve(root);
   /** @type {string[]} */
   const roots = [resolvedRoot];
+  let realMain=resolvedRoot;
   try {
-    const realMain = fs.realpathSync(resolvedRoot);
+    realMain = fs.realpathSync.native(resolvedRoot);
     if (realMain !== resolvedRoot) roots.push(realMain);
   } catch {
     /* keep resolved */
@@ -137,6 +138,10 @@ function allowedRoots(root, opts = {}) {
       }
     }
   }
+  // Preserve the lexical spelling of registered roots when the main checkout
+  // uses a filesystem alias (macOS /var, Windows short paths, or a junction).
+  // Every candidate still passes the independent physical containment check.
+  if(realMain!==resolvedRoot)for(const registered of [...roots])roots.push(path.resolve(resolvedRoot,path.relative(realMain,registered)));
   // de-dupe
   const seen = new Set();
   /** @type {string[]} */
@@ -163,7 +168,7 @@ function isUnderAnyRoot(roots, resolved) {
     if (isUnder(root, resolved)) lexOk = true;
     let realRoot = root;
     try {
-      realRoot = fs.realpathSync(root);
+      realRoot = fs.realpathSync.native(root);
     } catch {
       /* keep */
     }
@@ -181,7 +186,7 @@ export function grokHomeRoots() {
   /** @type {string[]} */
   const roots = [home];
   try {
-    const real = fs.realpathSync(home);
+    const real = fs.realpathSync.native(home);
     if (real !== home) roots.push(real);
   } catch {
     /* may not exist yet */

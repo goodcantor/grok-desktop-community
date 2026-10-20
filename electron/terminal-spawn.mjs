@@ -212,7 +212,7 @@ export function normalizeTerminalSpawn(command, argsIn) {
 
   // Spaces in a real executable path are not a packed command line. Keep its
   // argv intact, particularly Git Bash and PowerShell under Program Files.
-  if(isExistingExecutablePath(cmd))return {execCommand:cmd,args,useShell:isWin&&/\.(cmd|bat)$/i.test(cmd)};
+  if(isExistingExecutablePath(cmd)&&!(['bash','sh','zsh'].includes(shellBaseName(cmd))&&args.length===1&&looksLikeScriptBody(args[0])))return {execCommand:cmd,args,useShell:isWin&&/\.(cmd|bat)$/i.test(cmd)};
 
   if (looksLikeScriptBody(cmd) && args.length === 0) {
     return spawnViaBashLc(cmd);

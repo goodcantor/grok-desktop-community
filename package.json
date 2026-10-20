@@ -65,7 +65,10 @@
       "dist/**/*",
       "electron/**/*",
       "shared/**/*",
-      "package.json"
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
+      "PRIVACY.md"
     ],
     "asar": true,
     "win": {

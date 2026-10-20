@@ -192,15 +192,9 @@ test("linux uses code from PATH", () => {
 });
 
 test("whichBin finds PATHEXT variants on Windows", () => {
-  const found = whichBin("code", {
-    platform: "win32",
-    env: {
-      PATH: "C:\\\\bin",
-      PATHEXT: ".EXE;.CMD",
-    },
-    exists: (p) => p === path.join("C:\\\\bin", "code.CMD"),
-  });
-  assert.equal(found, path.join("C:\\\\bin", "code.CMD"));
+  const directory=String.raw`C:\bin`,expected=path.win32.join(directory,'code.CMD');
+  const found=whichBin('code',{platform:'win32',env:{PATH:directory,PATHEXT:'.EXE;.CMD'},exists:p=>p===expected});
+  assert.equal(found,expected);
 });
 
 test("listEditors marks last-resort system editors by platform", () => {
