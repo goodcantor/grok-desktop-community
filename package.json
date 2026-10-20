@@ -129,8 +129,9 @@
         }
       ],
       "category": "Development",
-      "artifactName": "GrokDesktopCommunity-${version}-Linux-${arch}.${ext}",
-      "maintainer": "goodcantor <57045864+goodcantor@users.noreply.github.com>"
+      "artifactName": "GrokDesktopCommunity-${version}-Linux-x64.${ext}",
+      "maintainer": "goodcantor <57045864+goodcantor@users.noreply.github.com>",
+      "syncDesktopName": true
     },
     "electronDist": "node_modules/electron/dist",
     "asarUnpack": [
@@ -152,5 +153,6 @@
   "engines": {
     "node": ">=22.19.0"
   },
-  "private": true
+  "private": true,
+  "desktopName": "io.github.goodcantor.grokdesktopcommunity.desktop"
 }
