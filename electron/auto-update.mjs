@@ -1,6 +1,7 @@
 /** Community-only, explicit updates. Never destroys windows or bypasses quit guards. */
 import { createRequire } from 'node:module';
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, shell } from 'electron';
+import {communityDistribution} from './distribution.mjs';
 import { configureCommunityUpdater, installCommunityUpdate } from './update-controller.mjs';
 const require=createRequire(import.meta.url);
 let updater=null,busy=false,installing=false,allowPrerelease=false,hooks={},available=null;
@@ -19,9 +20,14 @@ function wire(options={}){
   updater.on('error',()=>{busy=false;});
   return updater;
 }
-export function setupAutoUpdater(options={}){if(app.isPackaged)wire(options);}
+export function setupAutoUpdater(options={}){hooks=options;if(communityDistribution(app).updates==='verified')wire(options);}
 export async function checkForUpdatesInteractive(options={}){
   if(!app.isPackaged){await box({type:'info',buttons:['OK'],message:'Updates require an installed Community build.'});return {ok:false,reason:'dev'};}
+  if(communityDistribution(app).updates==='manual'){
+    const choice=await box({type:'info',buttons:['Open Releases','Cancel'],defaultId:1,cancelId:1,message:'This build uses manual updates.',detail:'Community previews have no verified publisher signature. Download a new installer from the Community Releases page, check its SHA-256, finish active tasks and close Community before replacing it. The app will not download or install an update automatically.'});
+    if(choice.response===0)await shell.openExternal('https://github.com/goodcantor/grok-desktop-community/releases');
+    return {ok:true,manual:true};
+  }
   if(busy)return {ok:false,reason:'busy'};
   busy=true;
   try{

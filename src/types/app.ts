@@ -3,6 +3,7 @@ import type { AuthStatus } from "./auth";
 export type AppInfo = {
   windowId: number;
   version: string;
+  distribution: {channel: 'development' | 'unsigned-preview' | 'signed'; updates: 'manual' | 'verified'};
   platform: string;
   grokBinary: string;
   grokHome: string;

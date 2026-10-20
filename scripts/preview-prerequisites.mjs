@@ -1,0 +1,10 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';import {execFileSync} from 'node:child_process';
+const version=JSON.parse(fs.readFileSync('package.json')).version,tag=process.env.RELEASE_TAG;
+assert.match(version,/^\d+\.\d+\.\d+-beta\.\d+$/,'Unsigned previews must remain beta prereleases');assert.equal(tag,'v'+version);
+const acceptance=JSON.parse(fs.readFileSync('docs/RELEASE-ACCEPTANCE.json'));assert.equal(acceptance.version,version);assert.equal(acceptance.targets['windows-x64'].officialCli,'passed');
+assert.equal(process.env.GITHUB_REPOSITORY,'goodcantor/grok-desktop-community');
+const sha=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+assert.equal(sha,process.env.GITHUB_SHA,'Build source must match the attested workflow commit');
+const response=await fetch(`https://api.github.com/repos/goodcantor/grok-desktop-community/actions/workflows/ci.yml/runs?head_sha=${sha}&event=push`,{headers:{Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,Accept:'application/vnd.github+json'}});assert.ok(response.ok);
+const data=await response.json();assert.ok(data.workflow_runs.some(row=>row.head_sha===sha&&row.conclusion==='success'),'Exact commit must pass every native quality job');
+console.log('UNSIGNED_PREVIEW_PREFLIGHT_OK');

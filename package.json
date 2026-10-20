@@ -25,7 +25,8 @@
     "typecheck": "tsc --noEmit",
     "test:native": "node scripts/harness-native-smoke.mjs",
     "test:package": "node scripts/community-package-smoke.mjs",
-    "release:verify": "node scripts/verify-release.mjs"
+    "release:verify": "node scripts/verify-release.mjs",
+    "dist:preview": "npm run build && node scripts/package-preview.mjs"
   },
   "dependencies": {
     "@floating-ui/react": "0.27.19",
@@ -128,7 +129,8 @@
         }
       ],
       "category": "Development",
-      "artifactName": "GrokDesktopCommunity-${version}-Linux-${arch}.${ext}"
+      "artifactName": "GrokDesktopCommunity-${version}-Linux-${arch}.${ext}",
+      "maintainer": "goodcantor <57045864+goodcantor@users.noreply.github.com>"
     },
     "electronDist": "node_modules/electron/dist",
     "asarUnpack": [

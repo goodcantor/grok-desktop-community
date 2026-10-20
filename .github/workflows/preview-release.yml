@@ -1,0 +1,175 @@
+name: Unsigned preview draft
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: main or the dispatch commit; source must match this workflow commit and pass native CI
+        required: true
+        default: main
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: unsigned-preview-draft
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      tag: ${{ steps.source.outputs.tag }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22.19.0'
+      - id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          export RELEASE_TAG="v$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')"
+          node scripts/preview-prerequisites.mjs
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish > existing-draft.json 2>/dev/null; then
+            EXPECTED_SHA="$sha" node -e 'const r=require("./existing-draft.json");if(!r.isDraft||r.targetCommitish!==process.env.EXPECTED_SHA)throw Error("A different or published release already exists")'
+          else
+            gh release create "$RELEASE_TAG" --target "$sha" --draft --prerelease --title "Grok Desktop Community $RELEASE_TAG — unsigned preview (building)" --notes 'INCOMPLETE DRAFT. Do not publish. All four targets, installed payload checks, checksums and provenance must finish first. No publisher signing certificate or Apple notarization is claimed.'
+          fi
+  preview:
+    needs: preflight
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            target: windows-x64
+          - os: macos-15
+            target: macos-arm64
+          - os: macos-15-intel
+            target: macos-x64
+          - os: ubuntu-24.04
+            target: linux-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+      GROK_EXPECT_DISTRIBUTION: unsigned-preview
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22.19.0'
+          cache: npm
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64 libgbm1 libxss1 bubblewrap
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm audit --audit-level=high
+      - run: npm run build
+      - run: node scripts/package-preview.mjs ${{ matrix.target }}
+      - name: Install Windows preview into a temporary directory
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install-preview-windows.ps1
+      - name: Install macOS DMG payload and verify ad-hoc integrity
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          image="release/GrokDesktopCommunity-${version}-${{ matrix.target }}-Unnotarized.dmg"
+          image="${image/macos-/macOS-}"
+          mount="$RUNNER_TEMP/community-image"
+          mkdir -p "$mount" "$RUNNER_TEMP/Community Preview"
+          hdiutil attach "$image" -readonly -nobrowse -mountpoint "$mount"
+          trap 'hdiutil detach "$mount"' EXIT
+          ditto "$mount/Grok Desktop Community.app" "$RUNNER_TEMP/Community Preview/Grok Desktop Community.app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/Community Preview/Grok Desktop Community.app"
+          echo "GROK_COMMUNITY_TEST_EXE=$RUNNER_TEMP/Community Preview/Grok Desktop Community.app/Contents/MacOS/Grok Desktop Community" >> "$GITHUB_ENV"
+      - name: Install Ubuntu DEB
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get install -y ./release/*Linux-x64.deb
+          executable="$(dpkg -L grok-desktop-community | rg '/grok-desktop-community$' | head -n 1)"
+          test -x "$executable"
+          echo "GROK_COMMUNITY_TEST_EXE=$executable" >> "$GITHUB_ENV"
+      - name: Installed package smoke with synthetic home
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s '-screen 0 1920x1080x24' npm run test:package
+          else
+            npm run test:package
+          fi
+      - name: Compare AppImage payload with tested DEB
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          image="$(realpath release/*Linux-x64.AppImage)"
+          mkdir "$RUNNER_TEMP/community-image-extract"
+          cd "$RUNNER_TEMP/community-image-extract"
+          "$image" --appimage-extract > /dev/null
+          node -e 'const fs=require("fs"),p=require("path"),a=fs.readFileSync("squashfs-root/resources/app.asar"),b=fs.readFileSync(p.join(p.dirname(process.env.GROK_COMMUNITY_TEST_EXE),"resources/app.asar"));if(!a.equals(b))throw Error("AppImage differs from tested installed payload")'
+      - run: node scripts/verify-preview-target.mjs ${{ matrix.target }}
+      - shell: bash
+        run: npm sbom --sbom-format=cyclonedx > release/SBOM-${{ matrix.target }}.json
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            release/*Unsigned-Setup.exe
+            release/*Unnotarized.dmg
+            release/*Linux-x64.deb
+            release/*Linux-x64.AppImage
+      - name: Upload only to the draft release
+        shell: bash
+        run: |
+          gh release view "$RELEASE_TAG" --json isDraft | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{if(!JSON.parse(s).isDraft)process.exit(1)})'
+          shopt -s nullglob
+          files=(release/*Unsigned-Setup.exe release/*Unnotarized.dmg release/*Linux-x64.deb release/*Linux-x64.AppImage release/SHA256SUMS-* release/SBOM-* release/preview-verification-*)
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+  finalize-draft:
+    needs: [preflight, preview]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+      SOURCE_COMMIT: ${{ needs.preflight.outputs.sha }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+      - name: Download the still-private draft
+        run: |
+          gh release view "$RELEASE_TAG" --json isDraft | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{if(!JSON.parse(s).isDraft)process.exit(1)})'
+          gh release download "$RELEASE_TAG" --dir verified-preview
+      - run: node scripts/verify-preview-set.mjs verified-preview
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            verified-preview/SHA256SUMS.txt
+            verified-preview/preview-manifest.json
+      - run: gh release upload "$RELEASE_TAG" verified-preview/SHA256SUMS.txt verified-preview/preview-manifest.json --clobber
+      - name: Mark the complete draft ready for owner review
+        run: gh release edit "$RELEASE_TAG" --title "Grok Desktop Community $RELEASE_TAG — unsigned community preview" --notes-file verified-preview/PREVIEW-NOTES.md --draft --prerelease

@@ -1,6 +1,6 @@
 # Signing setup and release evidence
 
-Public installers are blocked until the owner provisions signing credentials. No purchases or enrollment are performed by the build scripts. Keep credentials in a protected GitHub Environment named release-signing, with goodcantor as an approver. Never provide them to pull-request jobs or paste them into issues.
+The signed public distribution is blocked until the owner provisions signing credentials. A separately approved, clearly marked unsigned preview can be prepared as a draft using preview-release.yml; see [Distribution](DISTRIBUTION.md). The signed workflow never falls back to that profile. No purchases or enrollment are performed by the build scripts. Keep credentials in a protected GitHub Environment named release-signing, with goodcantor as an approver. Never provide them to pull-request jobs or paste them into issues.
 
 Windows: provide a supported electron-builder certificate or signing service. The default certificate path uses WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD; hardware/cloud signers must integrate through electron-builder's supported signing hook. Set WINDOWS_PUBLISHER_NAME to the actual certificate CN. Release verification checks Authenticode and the expected publisher. A certificate does not guarantee that SmartScreen reputation warnings disappear immediately.
 

@@ -12,7 +12,7 @@ Community does not import Custom preferences or rewrite coding-data sharing on s
 
 ## Network and permissions
 
-Update checks run when requested and contact only the Community GitHub repository. Download and installation need explicit action. The official CLI owns model requests, authorization and its own updates. Preview contacts URLs opened by the user or their agent; screenshots are submitted only using the explicit screenshot action.
+Unsigned previews use manual updates and open only the Community Releases page when requested; they do not download or install updates in-app. Signed distributions check only the Community repository and require explicit download/install action. The official CLI owns model requests, authorization and its own updates. Preview contacts URLs opened by the user or their agent; screenshots are submitted only using the explicit screenshot action.
 
 Preview denies sensitive site permissions by default. Tool-terminal isolation is distinct from file path gates and approval mode. Host terminals, the CLI process and MCP servers can have your user account access; do not treat the desktop shell as a sandbox for all code.
 

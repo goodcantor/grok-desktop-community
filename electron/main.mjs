@@ -15,6 +15,7 @@ import {
   Notification,
 } from "electron";
 import {createTaskNotifier,notificationPreferences} from './task-notifications.mjs';
+import {communityDistribution} from './distribution.mjs';
 import {setTaskNotifier} from './window-session.mjs';
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -720,6 +721,7 @@ function registerIpc() {
       debugLogPath: getDebugLogPath(),
       crashLogPath: getCrashLogPath(),
       crashDumpsPath: getCrashDumpsPath(),
+      distribution: communityDistribution(app),
       allowPrerelease: Boolean(state.allowPrerelease),
       externalEditor: normalizeExternalEditor(state.externalEditor),
       autoCompactAt: normalizeAutoCompactAt(state.autoCompactAt),

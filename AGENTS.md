@@ -10,6 +10,7 @@ Independent MIT client of the official Grok Build CLI. Keep native authenticatio
 - Targets: Windows x64, macOS arm64/x64, Linux x64. Every required job must pass. Build output is release/.
 - Never commit dependencies, output, QA profiles, credentials or conversations.
 - Publish only to goodcantor/grok-desktop-community. Never push upstream. Package with --publish never; CI owns draft uploads.
-- Public Windows artifacts require Authenticode; macOS requires Developer ID, hardened runtime, notarization and stapling. No unsigned public fallback. Release secrets never enter PR jobs.
+- Unsigned community preview drafts may be prepared without credentials. Publishing them requires an explicit owner exception to the signed-only policy. Label them unsigned/ad-hoc, keep updates manual, retain all four native CI checks and never claim notarization or stable certification.
+- Signed public Windows artifacts require Authenticode; macOS requires Developer ID, hardened runtime, notarization and stapling. No unsigned public fallback. Release secrets never enter PR jobs.
 - Updates use only Community releases and respect active work and unsaved edits.
 - Base: upstream v1.4.7, commit 1218f6edf3791c0f39820e8c60563d81c1697a0a. Retain upstream license/copyright.
