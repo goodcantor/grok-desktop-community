@@ -4,7 +4,7 @@ These are measured checks, not a claim that every supported configuration has be
 
 ## Automated source checks
 
-On 2026-10-20: TypeScript and all 637 unit tests passed with no skips. A clean dependency install, production build, development package and Windows NSIS packaging completed. These local development artifacts are unsigned and are not release assets.
+On 2026-10-20: TypeScript and all 638 unit tests passed with no skips. A clean dependency install, production build, development package and Windows NSIS packaging completed. These local development artifacts are unsigned and are not release assets.
 
 The full dependency audit has no high/critical findings; eight moderate findings remain in the build-only builder chain. Secret scanning covers the complete inherited Git history and tracked publication files. The required [native CI matrix](https://github.com/goodcantor/grok-desktop-community/actions/workflows/ci.yml) runs Windows x64, macOS arm64/x64 and Linux x64, including native fixture and packaged synthetic-home checks. A release requires a successful run for its exact commit.
 
@@ -19,3 +19,7 @@ Native fixture checks passed concurrent chats, FIFO, addressed Stop, reload, lat
 ## Release barriers
 
 macOS arm64/x64 and Linux official-CLI acceptance, Windows/Apple signing, and signed update acceptance remain pending. A simulated request is not proof of official-CLI interoperability, and a successful package command is not proof of a valid installer signature. RELEASE-ACCEPTANCE.json records those barriers; do not replace pending entries with fixture results.
+
+## Unsigned preview profile
+
+The preview records `unsigned-preview` and `manual` updates in its packaged metadata. The Windows development preview passed the synthetic-home package check, including the real Help update menu presenting a manual-update notice. A separate draft workflow tests actual NSIS/DMG/DEB installations before accepting release artifacts; those checks are required independently of the unpacked package. Publication remains a separate owner decision.
