@@ -80,7 +80,7 @@ jobs:
           WINDOWS_PUBLISHER_NAME: ${{ secrets.WINDOWS_PUBLISHER_NAME }}
         run: node scripts/verify-release.mjs --target ${{ matrix.target }}
       - run: npm sbom --omit=dev --sbom-format=cyclonedx > release/SBOM-${{ matrix.target }}.json
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: signed-${{ matrix.target }}
           path: |
