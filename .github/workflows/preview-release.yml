@@ -108,7 +108,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get install -y ./release/*Linux-x64.deb
-          executable="$(dpkg -L grok-desktop-community | rg '/grok-desktop-community$' | head -n 1)"
+          executable="$(node --input-type=module -e 'import fs from "node:fs";import{execFileSync}from"node:child_process";const p=execFileSync("dpkg",["-L","grok-desktop-community"],{encoding:"utf8"}).split("\n").find(p=>p.endsWith("/grok-desktop-community")&&fs.statSync(p).isFile());if(!p)throw Error("Installed executable missing");console.log(fs.realpathSync(p));')"
           test -x "$executable"
           echo "GROK_COMMUNITY_TEST_EXE=$executable" >> "$GITHUB_ENV"
       - name: Installed package smoke with synthetic home
