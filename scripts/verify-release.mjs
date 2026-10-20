@@ -1,4 +1,4 @@
-import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {execFileSync} from 'node:child_process';import assert from 'node:assert/strict';
+import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {execFileSync,spawnSync} from 'node:child_process';import assert from 'node:assert/strict';
 const version=JSON.parse(fs.readFileSync('package.json')).version;
 const args=process.argv.slice(2),target=args[args.indexOf('--target')+1];
 const acceptance=JSON.parse(fs.readFileSync('docs/RELEASE-ACCEPTANCE.json'));
@@ -15,9 +15,15 @@ if(target.startsWith('windows')){
 }else if(target.startsWith('macos')){
  const app=path.resolve(`release/mac${arch==='arm64'?'-arm64':''}/Grok Desktop Community.app`);
  execFileSync('codesign',['--verify','--deep','--strict',app],{stdio:'inherit'});
- const details=execFileSync('codesign',['-dv','--verbose=4',app],{encoding:'utf8',stdio:['ignore','pipe','pipe']});
- // codesign details go to stderr; spctl validates the Developer ID/notarization trust chain.
- void details;execFileSync('spctl',['--assess','--type','execute','--verbose=4',app],{stdio:'inherit'});execFileSync('xcrun',['stapler','validate',app],{stdio:'inherit'});
+ const details=spawnSync('codesign',['-dv','--verbose=4',app],{encoding:'utf8'});assert.equal(details.status,0);
+ assert.match(details.stderr,/Authority=Developer ID Application:/,'Developer ID required');assert.match(details.stderr,/flags=.*\bruntime\b/,'Hardened runtime required');
+ execFileSync('spctl',['--assess','--type','execute','--verbose=4',app],{stdio:'inherit'});execFileSync('xcrun',['stapler','validate',app],{stdio:'inherit'});
+ const dmgs=artifacts.filter(file=>file.endsWith('.dmg'));assert.equal(dmgs.length,1,'Final disk image required');
+ for(const file of dmgs){const dmg=path.resolve('release',file);
+  execFileSync('codesign',['--verify','--strict',dmg],{stdio:'inherit'});
+  execFileSync('spctl',['--assess','--type','open','--context','context:primary-signature','--verbose=4',dmg],{stdio:'inherit'});
+  execFileSync('xcrun',['stapler','validate',dmg],{stdio:'inherit'});
+ }
 }
 const sums=artifacts.map(file=>`${crypto.createHash('sha256').update(fs.readFileSync(path.join('release',file))).digest('hex')}  ${file}`).join('\n')+'\n';
 fs.writeFileSync(`release/SHA256SUMS-${target}.txt`,sums);

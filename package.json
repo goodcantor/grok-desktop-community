@@ -115,7 +115,8 @@
       "entitlementsInherit": "build/entitlements.mac.inherit.plist"
     },
     "dmg": {
-      "writeUpdateInfo": true
+      "writeUpdateInfo": false,
+      "sign": true
     },
     "linux": {
       "target": [

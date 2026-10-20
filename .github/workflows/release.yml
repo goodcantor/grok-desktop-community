@@ -101,6 +101,7 @@ jobs:
           else
             node scripts/package.mjs ${{ matrix.args }} --publish never -c.forceCodeSigning=true
           fi
+          if [ "$RUNNER_OS" = macOS ]; then node scripts/notarize-dmg.mjs "${{ matrix.target }}"; fi
       - name: Verify platform signatures and acceptance
         env:
           WINDOWS_PUBLISHER_NAME: ${{ secrets.WINDOWS_PUBLISHER_NAME }}
