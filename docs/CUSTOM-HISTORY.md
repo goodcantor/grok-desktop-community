@@ -67,7 +67,7 @@ A personal Windows build based on [liaan/grok-desktop v1.4.7](https://github.com
 - Interface migration preserves access preferences. Always approve describes tool approvals without implying unrestricted filesystem access. Updated transitive js-yaml; production npm audit reports zero known vulnerabilities.
 - Review changes opens Changes after a completed response. Composer actions use Lucide icons with visible focus states and concise keyboard hints.
 
-The competitor comparison, decisions and remaining priorities are in [the UI audit](docs/UX-AUDIT-2026-10-18.md).
+The competitor comparison, decisions and remaining priorities are in [the UI audit](UX-AUDIT-2026-10-18.md).
 
 ## Custom.10 usability and alerts
 
@@ -77,7 +77,7 @@ The competitor comparison, decisions and remaining priorities are in [the UI aud
 - Terminal tabs and resize support the keyboard; shell selection falls back to an installed shell, empty terminals can be restarted, theme changes preserve scrollback, and the editor/terminal fit small windows at high zoom.
 - All 586 unit checks now pass on Windows with no skips. Previously failing cross-platform fixtures, editor path handling and outdated assertions were corrected without dropping coverage.
 
-See [the follow-up usability audit](docs/USABILITY-AUDIT-2026-10-18.md) for Reddit sources, verification details and remaining limitations.
+See [the follow-up usability audit](USABILITY-AUDIT-2026-10-18.md) for Reddit sources, verification details and remaining limitations.
 
 ## Custom.11 history recovery and palette
 
@@ -100,7 +100,7 @@ See [the follow-up usability audit](docs/USABILITY-AUDIT-2026-10-18.md) for Redd
 - Usage uses four transparent primary measurements and compact optional details. Recorded model cost stays visible when another optional field is missing; incomplete cost is marked as a lower bound. Subscription usage remains separate from local response records.
 - Rebuilt the disposable usage cache format and refresh it when native chat history changes. Cache write failures no longer hide computed results.
 
-English developer documentation: [Architecture](docs/ARCHITECTURE.md) and [Developer guide](docs/DEVELOPMENT.md).
+English developer documentation: [Architecture](ARCHITECTURE.md) and [Developer guide](DEVELOPMENT.md).
 
 ## Custom.14 Harness adaptation
 
@@ -111,6 +111,6 @@ English developer documentation: [Architecture](docs/ARCHITECTURE.md) and [Devel
 - Each chat retains an independent native browser page. Preview MCP identifies the execution; user screenshots return to its queue in main. Terminal tabs retain their session identity and scrollback.
 - Closing a working window offers Keep working or Stop tasks and close. Restored unsent queues stay paused. Native `~/.grok` conversations remain authoritative.
 
-The comparison and exclusions are in [Harness adaptation](docs/HARNESS-MIGRATION.md). Cordis presets, new scheduling/workflow engines, cross-session context and unsupported history branching are excluded. MCP/plugin configuration binds to restarted or new agents; other running chats keep their existing configuration until restarted.
+The comparison and exclusions are in [Harness adaptation](HARNESS-MIGRATION.md). Cordis presets, new scheduling/workflow engines, cross-session context and unsupported history branching are excluded. MCP/plugin configuration binds to restarted or new agents; other running chats keep their existing configuration until restarted.
 
 `node scripts/harness-native-smoke.mjs` tests the real Electron shell with an isolated UI profile and a simulated agent boundary. It covers concurrent execution, queue ownership, reload, drafts, independent browsers, questions, plan comments, PTY, connection generations and late events. It checks both themes at widths 800/1000/1440 and zoom 100/125/150/200%; `GROK_AUDIT_DPI` selects 1.25/1.5/2. The separate native-history check reads shared history without agent execution. `node scripts/harness-packaged-smoke.mjs` verifies the packaged/installed ASAR with the official CLI, a real PTY command, independent native sessions and retained browser pages, without sending model prompts. Reports are under `qa/harness-native*.json` and `qa/custom14-*`.

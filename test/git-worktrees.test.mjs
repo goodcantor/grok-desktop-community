@@ -122,7 +122,7 @@ test("standalone clone is not a linked git worktree", async (t) => {
   const repo = path.join(tmp, "app");
   const copy = path.join(tmp, "standalone");
   initRepo(repo);
-  fs.cpSync(repo, copy, { recursive: true });
+  git(tmp, ["clone", "--no-hardlinks", repo, copy]);
 
   clearWorktreeRootCache(repo);
   const roots = listLinkedWorktreeRoots(repo, { refresh: true });

@@ -53,7 +53,8 @@ try{
 
   await page.getByRole('button',{name:'Chat',exact:true}).click();await page.getByText('Files from this response',{exact:true}).first().waitFor();checks.resultFiles=true;
   await page.getByRole('link',{name:'Open result',exact:true}).click();await page.locator('.file-peek,.file-view,.file-editor').first().waitFor({timeout:5000}).catch(()=>{});checks.localLink=await page.locator('.panel').getByText('result.md',{exact:false}).count()>0;
-  await choosePanel('Browser');await page.evaluate(url=>window.grokDesktop.openPreview(url),`http://127.0.0.1:${fixture.address().port}`);
+  await choosePanel('Browser');await page.evaluate(url=>Promise.all([window.grokDesktop.openPreview(url),window.grokDesktop.openPreview(url)]),`http://127.0.0.1:${fixture.address().port}`);
+  assert.equal(await app.evaluate(({webContents},prefix)=>webContents.getAllWebContents().filter(wc=>wc.getURL().startsWith(prefix)).length,`http://127.0.0.1:${fixture.address().port}`),1);checks.concurrentBrowserOpen=true;
   await app.evaluate(async()=>{const host=[...global.__harnessSessions.windowSessions.values()][0];const api=host.selected.previewController;await api.runPreviewAction({action:'fill',selector:'#note',value:'preserve me'});});
   await choosePanel('Files');await choosePanel('Browser');
   const snapshot=await page.evaluate(()=>window.grokDesktop.previewSnapshot());assert.match(JSON.stringify(snapshot),/preserve me/);checks.browserRetention=true;

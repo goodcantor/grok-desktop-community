@@ -26,7 +26,7 @@ Reference: official deepseek-ai/deepseek-harness, local commit 528c682e06. Grok 
 - MarkdownLink prevents default navigation but handles only HTTP(S). Local file links never open. Verify a scoped local file opens and an outside/symlink target is rejected by existing IPC.
 - useProjectSession blocks navigation while busy, and ensureAgent reuses/reloads/disposes the window's sole agent. Verify two simultaneous chats and that stopping one does not cancel the other.
 
-Baseline: 600 unit checks and TypeScript pass before implementation. Source snapshot: ~/Grok-Desktop-Backups/before-harness-20261020-163733. QA artifacts belong in qa/; installation instructions remain in README.
+Baseline: 600 unit checks and TypeScript pass before implementation. The personal source snapshot and QA data are retained outside the public repository. Installation instructions remain in README.
 
 ## Delivered verification — Custom.14
 
@@ -37,6 +37,6 @@ Baseline: 600 unit checks and TypeScript pass before implementation. Source snap
 - The actual installed application connects to the official CLI, creates independent native sessions, executes a PTY command, and retains its ASAR-hosted browser page and draft across chat selection. No model response generation was exercised in that check.
 - Installed ASAR equals the checked build. Installation preserved the user's native session history and backed up UI preferences, drafts and queues. A separate installed-app history check verifies shared catalog/search and warm restart without agent execution.
 
-Evidence: `qa/custom14-tests.txt`, `qa/harness-native*.json`, `qa/custom14-package.json`, `qa/custom14-installed-harness.json`, `qa/custom14-install.json`, and `qa/custom14-acceptance.json`.
+These are historical predecessor results. Current Community checks and remaining release barriers are recorded in [Verification](VERIFICATION.md).
 
 Known boundaries: Activity represents the available normalized ACP timeline rather than a raw transport packet archive. Unobserved mutation outcomes and unavailable usage metrics remain unknown. Existing build warnings concern bundle size and the non-module theme bootstrap; no new runtime dependencies were added.

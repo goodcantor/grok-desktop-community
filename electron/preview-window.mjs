@@ -822,7 +822,14 @@ function releaseDockHost() {
 }
 
 async function openDockedPreview(owner,url) {
-  if(dockOpening)await dockOpening;
+  // Serialize the complete host creation, including the first asynchronous yield.
+  // Waiting only for chrome.loadFile allowed two opens to replace each other's views.
+  const operation=(dockOpening||Promise.resolve()).catch(()=>{}).then(()=>openDockedPreviewInner(owner,url));
+  dockOpening=operation;
+  try{return await operation;}finally{if(dockOpening===operation)dockOpening=null;}
+}
+
+async function openDockedPreviewInner(owner,url) {
   if(dockOwner!==owner || !dockChrome) {
     writeCrashLog('preview','dock-host',{visible:owner.isVisible(),minimized:owner.isMinimized()});
     if(owner.isMinimized())owner.restore();
@@ -848,8 +855,7 @@ async function openDockedPreview(owner,url) {
     owner.once('closed',()=>{if(dockOwner===owner)closePreviewWindow();});
     const chrome=dockChrome;
     writeCrashLog('preview','dock-chrome-loading');
-    dockOpening=chrome.webContents.loadFile(path.join(__dirname,'preview','index.html'),{query:{theme:themeFromState(),docked:'1'}});
-    try {await dockOpening;}finally{dockOpening=null;}
+    await chrome.webContents.loadFile(path.join(__dirname,'preview','index.html'),{query:{theme:themeFromState(),docked:'1'}});
     chrome.webContents.setZoomFactor(owner.webContents.getZoomFactor());
     writeCrashLog('preview','dock-chrome-loaded');
     if(freshGuest) {

@@ -45,7 +45,7 @@ ipcMain.handle=(channel,handler)=>original(channel,async(event,...args)=>{
   GrokAcpClient.prototype.prompt=function(text){
     if(this._qaRun.active)throw Error('Overlapping prompt');this._qaMessages.push(text);this._qaTitle=text.slice(0,40);this._qaRun={active:true,startedAt:Date.now()};
     this.emit('session-update',{sessionId:this.sessionId,update:{sessionUpdate:'user_message_chunk',content:{type:'text',text}}});
-    this.emit('session-update',{sessionId:this.sessionId,update:{sessionUpdate:'tool_call',toolCallId:'tool-'+this._qaMessages.length,title:'Edit result.md',kind:'edit',status:'in_progress',rawInput:{path:path.join(this.cwd,'result.md')},locations:[{path:path.join(this.cwd,'result.md')}]}});
+    this.emit('session-update',{sessionId:this.sessionId,update:{sessionUpdate:'tool_call',toolCallId:'tool-'+this._qaMessages.length,title:'Edit result.md',kind:'edit',status:'in_progress',rawInput:{path:process.env.GROK_HARNESS_DEMO?'result.md':path.join(this.cwd,'result.md')},locations:[{path:process.env.GROK_HARNESS_DEMO?'result.md':path.join(this.cwd,'result.md')}]}});
     return new Promise((resolve,reject)=>{this._qaResolve=resolve;this._qaReject=reject;});
   };
   GrokAcpClient.prototype.cancel=function(){this._qaRun.active=false;this._qaResolve?.({stopReason:'cancelled'});this._qaResolve=null;};

@@ -17,7 +17,7 @@ An independent, open-source desktop client for the official **Grok Build CLI**. 
 - Use Files, Git Changes, a native terminal and a retained browser page for each chat.
 - English interface, light/dark themes, keyboard shortcuts and accessible layouts at high zoom.
 
-Screenshots use demo data in the real application. [Light theme](docs/screenshots/community-light.png) · [Inline questions](docs/screenshots/community-questions.png). No personal conversations or credentials are included.
+Screenshots use demo data in the real application. [Light theme](docs/screenshots/community-light.png) · [Inline questions](docs/screenshots/community-questions.png) · [Parallel tasks](docs/screenshots/community-parallel.png) · [Activity](docs/screenshots/community-activity.png) · [Browser](docs/screenshots/community-browser.png). No personal conversations or credentials are included.
 
 ## Download and install
 

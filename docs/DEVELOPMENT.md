@@ -1,6 +1,6 @@
 # Developer guide
 
-Start with [the architecture map](ARCHITECTURE.md). Project constraints and maintainer instructions are in [AGENTS.md](../AGENTS.md). Use [README.md](../README.md#build) for the supported environment and build/package commands; this guide does not duplicate installation instructions.
+Start with [the architecture map](ARCHITECTURE.md). Project constraints and maintainer instructions are in [AGENTS.md](../AGENTS.md). Use [README.md](../README.md#build-from-source) for the supported environment and build/package commands; this guide does not duplicate installation instructions.
 
 ## Working on a feature
 
