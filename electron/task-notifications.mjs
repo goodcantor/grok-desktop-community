@@ -3,7 +3,7 @@ export function notificationPreferences(state={}) {
   return {enabled:state.notifications?.enabled!==false,sound:state.notifications?.sound===true};
 }
 
-export function createTaskNotifier({Notification,getState}) {
+export function createTaskNotifier({Notification,getState,selectExecution}) {
   const active=new Map(),seen=new Set(),windows=new WeakSet();
   const dismiss=(ws,key)=>{
     for(const [id,row]of active)if(row.ws===ws&&(!key||row.key===key)){
@@ -12,8 +12,11 @@ export function createTaskNotifier({Notification,getState}) {
   };
   const watch=ws=>{
     if(windows.has(ws.win))return;windows.add(ws.win);
-    ws.win.on('focus',()=>{dismiss(ws);try{ws.win.flashFrame(false);}catch{}});
-    ws.win.on('closed',()=>dismiss(ws));
+    ws.win.on('focus',()=>{
+      for(const row of [...active.values()])if(row.ws.win===ws.win&&(!row.ws.host||row.ws.host.selected===row.ws))dismiss(row.ws);
+      try{ws.win.flashFrame(false);}catch{}
+    });
+    ws.win.on('closed',()=>{for(const row of [...active.values()])if(row.ws.win===ws.win)dismiss(row.ws);});
   };
   const show=(ws,{kind,key,sessionId=ws?.agent?.sessionId}={})=>{
     const win=ws?.win,preferences=notificationPreferences(getState());
@@ -29,7 +32,7 @@ export function createTaskNotifier({Notification,getState}) {
       const notification=new Notification({title:labels[kind],body:`${workspace} · ${sessionId.slice(-8)} · Grok Desktop Community`,silent:!preferences.sound});
       active.set(identity,{ws,key,notification});
       notification.on('click',()=>{
-        if(!win.isDestroyed()&&ws.agent?.sessionId===sessionId){if(ws.host){ws.host.selected=ws;win.webContents.send('app:select-execution',{cwd:ws.lastCwd,sessionId});}if(win.isMinimized())win.restore();win.show();win.focus();}
+        if(!win.isDestroyed()&&ws.agent?.sessionId===sessionId){if(ws.host){selectExecution(ws);win.webContents.send('app:select-execution',{cwd:ws.lastCwd,sessionId});}if(win.isMinimized())win.restore();win.show();win.focus();}
         dismiss(ws);
       });
       notification.on('close',()=>active.delete(identity));

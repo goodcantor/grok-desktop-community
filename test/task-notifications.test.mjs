@@ -4,7 +4,7 @@ import {EventEmitter} from 'node:events';
 import {createTaskNotifier,notificationPreferences} from '../electron/task-notifications.mjs';
 
 function fixture(){
-  const shown=[];let state={};
+  const shown=[],selected=[];let state={};
   class Notice extends EventEmitter{
     static isSupported(){return true;}
     constructor(options){super();this.options=options;}
@@ -13,7 +13,7 @@ function fixture(){
   }
   const win=Object.assign(new EventEmitter(),{id:1,focused:false,isDestroyed:()=>false,isFocused(){return this.focused;},isMinimized:()=>true,restore(){this.restored=true;},show(){},focus(){this.focused=true;this.emit('focus');},flashFrame(){}});
   const ws={win,agent:{sessionId:'session-123456789',cwd:'C:\\Projects\\PrivateProject'}};
-  return {shown,ws,notifier:createTaskNotifier({Notification:Notice,getState:()=>state}),setState:value=>{state=value;}};
+  return {shown,ws,selected,notifier:createTaskNotifier({Notification:Notice,getState:()=>state,selectExecution:record=>{selected.push(record);record.host.selected=record;}}),setState:value=>{state=value;}};
 }
 test('background alerts show only meaningful outcomes, contain no content and deduplicate gates',()=>{
   const {shown,ws,notifier}=fixture();
@@ -35,4 +35,17 @@ test('preferences, privacy and stale session clicks are respected',()=>{
   notifier.show(ws,{kind:'answer',key:'question'});assert.equal(shown[0].options.silent,false);assert.ok(!shown[0].options.body.includes('PrivateProject'));
   ws.agent.sessionId='different-session';shown[0].emit('click');assert.equal(ws.win.focused,false);
   assert.equal(notifier.show(ws,{kind:'complete',sessionId:'old-session'}),false);
+});
+
+test('inactive-chat notification uses canonical selection and window focus dismisses the selected chat only',()=>{
+ const {shown,ws,selected,notifier}=fixture(),sent=[];
+ ws.win.webContents={send:(...args)=>sent.push(args)};
+ const host={selected:ws};ws.host=host;ws.lastCwd='project';
+ const other={...ws,agent:{...ws.agent,sessionId:'session-other'}};
+ notifier.show(ws,{kind:'complete'});notifier.show(other,{kind:'answer'});
+ ws.win.focus();assert.equal(shown[0].closed,true);assert.equal(shown[1].closed,undefined);
+ shown[1].emit('click');assert.deepEqual(selected,[other]);assert.equal(host.selected,other);
+ assert.deepEqual(sent,[['app:select-execution',{cwd:'project',sessionId:'session-other'}]]);
+ ws.win.focused=false;notifier.show(ws,{kind:'failed'});notifier.show(other,{kind:'failed'});
+ ws.win.emit('closed');assert.equal(shown[2].closed,true);assert.equal(shown[3].closed,true);
 });

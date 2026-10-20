@@ -9,7 +9,7 @@ import {configurePreviewPermissions} from '../electron/preview-permissions.mjs';
 import {terminalIsolationStatus} from '../electron/terminal-isolation.mjs';
 import {configureCommunityUpdater,installCommunityUpdate,COMMUNITY_FEED} from '../electron/update-controller.mjs';
 import {summarizeSessionUpdate,sanitizeLogData} from '../electron/debug-log.mjs';
-import {pathToFileURL} from 'node:url';import path from 'node:path';
+import {pathToFileURL} from 'node:url';import path from 'node:path';import fs from 'node:fs';
 const tick=()=>new Promise(resolve=>setImmediate(resolve));const entry=id=>({id,text:id,images:[],at:0});
 test('failed connection survives a second process without replay',async()=>{
  let disk=[entry('legacy')],calls=0;
@@ -36,7 +36,7 @@ test('diagnostic records discard commands, args, env and credential fields',()=>
 
 test('POSIX terminals discover native shells without Windows executables',()=>{for(const platform of ['darwin','linux']){const shells=installedPtyShells({platform,env:{SHELL:'/bin/bash'},exists:()=>true});assert.ok(shells.length);assert.ok(shells.every(shell=>shell.path.startsWith('/')));assert.equal(new Set(shells.map(shell=>shell.path)).size,shells.length);}});
 
-test('Community uses its own UI directory and preserves isolated profiles',()=>{for(const custom of [false,true]){let data=custom?path.resolve('qa/isolated'):path.resolve('qa/app-data/Grok Desktop Community');const app={getName:()=> 'Grok Desktop Community',getPath:key=>key==='userData'?data:path.resolve('qa/app-data'),setPath:(_key,value)=>{data=value}};configureCommunityDataPath(app);assert.equal(data,custom?path.resolve('qa/isolated'):path.resolve('qa/app-data/grok-desktop-community'));}});
+test('Community uses its own UI directory and preserves isolated profiles',()=>{for(const custom of [false,true]){let data=custom?path.resolve('qa/isolated'):path.resolve('qa/app-data/Grok Desktop Community');const app={getName:()=> 'Grok Desktop Community',getPath:key=>key==='userData'?data:path.resolve('qa/app-data'),setPath:(_key,value)=>{data=value}};configureCommunityDataPath(app);assert.equal(data,custom?path.resolve('qa/isolated'):path.resolve('qa/app-data/grok-desktop-community'));if(!custom&&process.platform!=='win32')assert.equal(fs.statSync(data).mode&0o777,0o700);}});
 
 test('invalid recovery data is rejected instead of overwritten',()=>{assert.throws(()=>validateQueue({version:99}),/retained/);assert.throws(()=>validateQueue({version:2,pending:[{id:'one',text:'one',images:null}]}),/retained/);assert.deepEqual(validateQueue([entry('legacy')]),[entry('legacy')]);});
 
@@ -46,4 +46,10 @@ test('close/update guards include goals and background work between prompt turns
  assert.equal(executionHasActiveWork({agent,backgroundTasks:[{status:'running'}]}),true);
  assert.equal(executionHasActiveWork({agent:{...agent,ready:false},backgroundTasks:[{status:'running'}]}),false);
  assert.equal(executionHasActiveWork({pendingUserQuestions:new Map([['one',{}]])}),true);
+});
+
+test('explicit user-data-dir is never relocated, even when named like the default',()=>{
+ const root=path.resolve('qa/explicit-profile'),initial=path.join(root,'Grok Desktop Community');
+ const app={commandLine:{hasSwitch:name=>name==='user-data-dir'},getName:()=> 'Grok Desktop Community',getPath:key=>key==='userData'?initial:root,setPath:()=>assert.fail('Explicit profile was relocated')};
+ configureCommunityDataPath(app);
 });

@@ -184,7 +184,7 @@ if (
 /** File → Quit / Cmd+Q. Window X does not set this (Settings can swallow that). */
 let appQuitting = false;
 
-const taskNotifier=createTaskNotifier({Notification,getState:()=>loadState()});
+const taskNotifier=createTaskNotifier({Notification,getState:()=>loadState(),selectExecution});
 setTaskNotifier(taskNotifier);
 const storePath = path.join(app.getPath("userData"), "desktop-state.json");
 

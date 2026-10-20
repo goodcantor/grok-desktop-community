@@ -57,7 +57,7 @@ export function getCrashLogPath() {
   }
   logPath = path.join(
     process.env.APPDATA || os.homedir(),
-    "grok-desktop",
+    "grok-desktop-community",
     "desktop-crash.log",
   );
   return logPath;
@@ -123,9 +123,9 @@ export function writeCrashLog(scope, message, data, file) {
     line = `${line.slice(0, MAX_LINE - 2)}…\n`;
   }
   try {
-    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
     rotateIfNeeded(target);
-    fs.appendFileSync(target, line, "utf8");
+    fs.appendFileSync(target, line, { encoding: "utf8", mode: 0o600 });
   } catch (err) {
     try {
       console.error("[crash-log] write failed:", err?.message || err);
