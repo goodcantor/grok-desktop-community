@@ -1,5 +1,6 @@
 import { FileRoots } from "./files/FileRoots";
 import {GitReview} from './GitReview';
+import { Files, GitCompare, Globe } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   isLexicallyUnder,
@@ -225,6 +226,8 @@ export const SidePanel = memo(function SidePanel({
         <button
           type="button"
           role="tab"
+          aria-label="Files"
+          title="Files"
           aria-selected={tab === "files"}
           className={tab === "files" ? "active" : ""}
           onClick={() => {
@@ -235,11 +238,13 @@ export const SidePanel = memo(function SidePanel({
             setTab("files");
           }}
         >
-          Files
+          <Files size={16} aria-hidden/><span className="panel-tab-label">Files</span>
         </button>
         <button
           type="button"
           role="tab"
+          aria-label={changesLabel}
+          title={changesLabel}
           aria-selected={tab === "changes"}
           className={tab === "changes" ? "active" : ""}
           onClick={() => {
@@ -251,9 +256,9 @@ export const SidePanel = memo(function SidePanel({
             if (project) void files.loadChanges(project);
           }}
         >
-          {changesLabel}
+          <GitCompare size={16} aria-hidden/><span className="panel-tab-label">{changesLabel}</span>
         </button>
-        <button type="button" role="tab" aria-selected={tab==='browser'} className={tab==='browser'?'active':''} onClick={()=>setTab('browser')}>Browser</button>
+        <button type="button" role="tab" aria-label="Browser" title="Browser" aria-selected={tab==='browser'} className={tab==='browser'?'active':''} onClick={()=>setTab('browser')}><Globe size={16} aria-hidden/><span className="panel-tab-label">Browser</span></button>
         <button type="button" className="panel-close" aria-label="Close side panel" title="Close side panel" onClick={onToggleCollapsed}>×</button>
           </>
         )}

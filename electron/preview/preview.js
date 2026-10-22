@@ -84,6 +84,7 @@ function showHint(msg) {
 }
 
 function showPanel(title, meta, body) {
+  setToolsOpen(false);
   panel.hidden = false;
   panelTitle.textContent = title;
   panelMeta.textContent = meta || "";
@@ -95,8 +96,11 @@ function reportLayout() {
   const hintH = hint.hidden ? 0 : Math.ceil(hint.getBoundingClientRect().height);
   const h = Math.ceil(bar.getBoundingClientRect().height) + hintH;
   const side = panel.hidden ? 0 : Math.ceil(panel.getBoundingClientRect().width);
-  const maxNet = Math.floor(window.innerHeight * NET_MAX_RATIO);
-  if (netHeight > maxNet) netHeight = Math.max(NET_MIN, maxNet);
+  const available = Math.max(0, window.innerHeight - h);
+  const toolbar = Math.ceil(document.querySelector('.net-toolbar').getBoundingClientRect().height);
+  const minNet = Math.min(available, Math.max(NET_MIN, toolbar + 66));
+  const maxNet = Math.min(available, Math.max(minNet, Math.floor(window.innerHeight * NET_MAX_RATIO)));
+  netHeight = Math.max(minNet, Math.min(netHeight, maxNet));
   const bottom = network.hidden ? 0 : netHeight;
   panel.style.top = `${h}px`;
   panel.style.bottom = `${bottom}px`;
@@ -287,6 +291,7 @@ function renderNetworkTable(snap) {
 }
 
 function setNetworkOpen(open) {
+  if(open)setToolsOpen(false);
   network.hidden = !open;
   netBtn.classList.toggle("is-on", open);
   if (open) {

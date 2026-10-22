@@ -13,6 +13,11 @@
 .panel-tabs button{min-width:0;padding:5px 8px;font-size:12px}
 .panel-tabs button.col-toggle{min-width:24px;min-height:24px;width:24px;height:24px;margin:0 4px}
 .panel-tabs button.panel-close{min-height:26px;flex-basis:26px;font-size:18px}
+.panel{container-type:inline-size;container-name:side-panel}
+.panel-tabs [role="tab"]{display:flex;align-items:center;justify-content:center;gap:5px;overflow:hidden}
+.panel-tabs [role="tab"]>svg{display:none;flex:none}
+.panel-tab-label{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@container side-panel (max-width:300px){.panel-tabs [role="tab"]{padding:4px;min-width:28px}.panel-tabs [role="tab"]>svg{display:block}.panel-tab-label{display:none}}
 .topbar.topbar--refined{padding:4px 16px;min-height:44px}
 .topbar--refined .topbar-main{min-height:36px;align-items:center;gap:10px}
 .topbar--refined .topbar-project{flex-direction:row;align-items:center;gap:8px;min-width:0}

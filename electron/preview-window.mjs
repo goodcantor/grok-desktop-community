@@ -361,7 +361,7 @@ function layoutGuest() {
   const [cw, ch] = dockBounds ? [dockBounds.width,dockBounds.height] : previewWin.getContentSize();
   const scale=chromeWc()?.getZoomFactor()||1;
   const top = Math.max(36, Math.ceil(toolbarHeight*scale));
-  const side = Math.max(0, Math.min(sideWidth*scale, Math.floor(cw * 0.5)));
+  const side = Math.max(0, Math.min(sideWidth*scale, cw));
   const bottom = Math.max(0, Math.min(bottomHeight*scale, Math.floor(ch * 0.72)));
   const availW = Math.max(0, cw - side);
   const availH = Math.max(0, ch - top - bottom);
