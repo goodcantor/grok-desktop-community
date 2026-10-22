@@ -1,6 +1,7 @@
 import { technicalGroups, producedFiles, localFileReference } from "../../shared/conversation-view.mjs";
 import { FileText } from "lucide-react";
 import { ImageViewer } from "./ImageViewer";
+import { MarkdownTable } from "./MarkdownTable";
 import {
   Fragment,
   memo,
@@ -116,6 +117,7 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
 }
 
 const MD_COMPONENTS = {
+  table: MarkdownTable,
   a: MarkdownLink,
   img: MarkdownImage,
   pre: MarkdownCodeBlock,
@@ -446,7 +448,7 @@ const TimelineRow = memo(function TimelineRow({
       <Fragment>
         {day}
         <details className={item.askUser ? "msg tool ask-user-question" : "msg tool"}>
-          <summary>{card.heading || card.action || "Tool activity"}<span className={`tool-status ${item.status}`}>{item.status}</span>{item.endedAt&&item.endedAt>=item.at&&<span className="tool-duration">{((item.endedAt-item.at)/1000).toFixed(1)}s</span>}</summary>
+          <summary><span className="tool-summary-title" title={redact(card.heading || card.action || "Tool activity")}>{redact(card.heading || card.action || "Tool activity")}</span><span className={`tool-status ${item.status}`}>{item.status}</span>{item.endedAt&&item.endedAt>=item.at&&<span className="tool-duration">{((item.endedAt-item.at)/1000).toFixed(1)}s</span>}</summary>
           <MsgMeta role="Tool" at={item.at} />
           <div className="tool-body">
             <div className="tool-header">
@@ -472,10 +474,9 @@ const TimelineRow = memo(function TimelineRow({
       <Fragment>
         {day}
         <article className="msg plan">
-          <MsgMeta role="Plan" at={item.at} />
-          <div className="body">
+          <details><summary>Response plan · {entries.length} steps</summary><div className="body">
             <PlanSteps entries={normalizePlanEntries(entries)} label="Response plan"/>
-          </div>
+          </div></details>
         </article>
       </Fragment>
     );
@@ -484,7 +485,7 @@ const TimelineRow = memo(function TimelineRow({
   return (
     <Fragment>
       {day}
-      <article className="msg">
+      <article className="msg system" title={formatFullTimestamp(item.at)}>
         <MsgMeta role="System" at={item.at} />
         <div className="body">{redact(item.text || "")}</div>
       </article>

@@ -10,6 +10,8 @@ import "./styles/usability.css";
 import "./styles/usage.css";
 import "./styles/conversation.css";
 import "../shared/theme-palette.css";
+import "./styles/task-workspace.css";
+import "./styles/density.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

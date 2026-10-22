@@ -514,6 +514,7 @@ function reduceSessionUpdate(items, params) {
           next[i] = {
             ...next[i],
             entries,
+            ...(params._goalId ? {goalId:params._goalId} : {}),
             at: next[i].at || at,
           };
           return next;
@@ -522,6 +523,7 @@ function reduceSessionUpdate(items, params) {
       next.push({
         id: uid("plan"),
         kind: "plan",
+        ...(params._goalId ? {goalId:params._goalId} : {}),
         entries,
         at,
       });

@@ -1086,6 +1086,7 @@ export default function App() {
       goal={composerRuntime?.goal || null}
       outcome={turnOutcome}
       tasks={backgroundTasks}
+      queueCount={promptQueue.length}
       queue={
         <PromptQueue
           items={promptQueue}
@@ -1386,6 +1387,7 @@ export default function App() {
             </div>
           )}
 
+          <div className="conversation-toolbar">
           {(items.length > 0 || historyPage) && (
             <div className="history-navigation">
               <button
@@ -1428,6 +1430,7 @@ export default function App() {
             </div>
           )}
           <nav className="conversation-tabs" aria-label="Conversation view"><button aria-pressed={conversationView==='chat'} onClick={()=>setConversationView('chat')}>Chat</button><button aria-pressed={conversationView==='activity'} onClick={()=>setConversationView('activity')}>Activity</button></nav>
+          </div>
           {conversationView==='activity'?<ActivityView items={historyPage?.items||items} loading={historyBusy} hasEarlier={historyPage?.start!==0} onEarlier={()=>void pageHistory(historyPage?Math.max(0,historyPage.start-140):0)}/>:<>
           <MessageList
             key={`messages:${sessionId || "no-session"}:${historyPage?.start ?? "live"}:${historyPage?.focusOrdinal ?? ""}`}

@@ -64,6 +64,7 @@ try {
   await page.getByTitle('Settings',{exact:true}).click();await page.getByRole('dialog').waitFor();await wait(async()=>(await views()).filter(v=>v.url.startsWith(url)||v.url.includes('/preview/index.html')).every(v=>!v.visible));report.modalOcclusion=true;
   await page.getByRole('button',{name:'Close settings',exact:true}).click();await wait(async()=>(await views()).find(v=>v.url.startsWith(url))?.visible);
   await page.getByRole('button',{name:'Context window',exact:true}).click();await page.getByRole('dialog',{name:'Context settings'}).waitFor();await wait(async()=>(await views()).find(v=>v.url.startsWith(url))?.visible===false);await page.keyboard.press('Escape');report.popoverOcclusion=true;
+  await chrome.getByRole('button',{name:'Browser tools',exact:true}).click();
   await chrome.getByRole('button',{name:'Snapshot',exact:true}).click();await chrome.locator('#panel-body').getByText(/Build it/).waitFor();report.snapshot=true;await chrome.getByRole('button',{name:'Close panel',exact:true}).click();
   await chrome.locator('#net').click();await chrome.locator('#network').waitFor({state:'visible'});report.network=true;await chrome.getByRole('button',{name:'Close network',exact:true}).click();
   for(const width of [1440,1000,800]) {

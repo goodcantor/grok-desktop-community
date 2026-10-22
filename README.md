@@ -113,6 +113,8 @@ npm run typecheck
 npm test
 npm run build
 npm run test:native
+# Windows: native screenshots, high zoom, task states and scrolling
+npm run test:ui
 npm run pack -- --publish never
 ```
 

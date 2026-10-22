@@ -96,3 +96,16 @@ test("loadSessionOpenState ctx follows stream meta, not billed turn total", () =
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+
+test('native history replay preserves goal-plan provenance across a follow-up',()=>{
+ const home=fs.mkdtempSync(path.join(os.tmpdir(),'grok-goal-plan-')),previous=process.env.GROK_HOME;
+ process.env.GROK_HOME=home;
+ try {
+  const cwd=path.join(home,'project'),id='goal-plan',dir=path.join(home,'sessions',encodeSessionCwd(cwd),id);
+  fs.mkdirSync(dir,{recursive:true});
+  const updates=[{sessionUpdate:'goal_updated',goalId:'g1',status:'active'}, {sessionUpdate:'plan',entries:[{content:'Finish',status:'in_progress'}]}, {sessionUpdate:'user_message_chunk',content:{type:'text',text:'Follow up'}}];
+  fs.writeFileSync(path.join(dir,'updates.jsonl'),updates.map(update=>JSON.stringify({params:{update}})).join('\n'));
+  const loaded=loadSessionOpenState(cwd,id);assert.equal(loaded.error,null);assert.equal(loaded.items.find(item=>item.kind==='plan').goalId,'g1');
+ }finally{if(previous===undefined)delete process.env.GROK_HOME;else process.env.GROK_HOME=previous;fs.rmSync(home,{recursive:true,force:true});}
+});

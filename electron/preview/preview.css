@@ -30,8 +30,8 @@ body {display:flex;flex-direction:column}
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 4px;
+  padding: 4px 6px;
   background: var(--bar);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
@@ -71,7 +71,7 @@ button:disabled {
 }
 
 .url-form {
-  flex: 1 1 180px;
+  flex: 1 1 40px;
   min-width: 0;
 }
 
@@ -112,7 +112,29 @@ button:disabled {
 .actions {
   display: flex;
   gap: 4px;
-  flex: 0 0 auto;
+  flex: 1 0 100%;
+  overflow-x: auto;
+  padding: 2px 0;
+}
+
+.bar button {height:28px;min-width:26px;padding:0 6px;border-radius:6px;flex:none;font:inherit}
+.bar .nav {gap:2px}
+.bar #url {height:28px;padding:0 8px;border-radius:6px}
+.bar .viewport {gap:0}
+.bar .viewport>span {display:none}
+.bar .viewport select {height:26px;width:80px;min-width:0;border-radius:6px;font:inherit}
+#zoom {min-width:38px;padding:0 3px;font-size:11px}
+#tools-toggle {font-size:18px;line-height:1}
+#tools-toggle[aria-expanded="true"] {background:var(--hover)}
+@media(max-width:380px){
+  .bar .viewport{display:none}
+  .bar:has(.actions:not([hidden])) .viewport{display:inline-flex;order:5;flex-basis:100%}
+  .bar .actions{order:6}
+}
+@media(max-width:260px){
+  .bar #back,.bar #fwd,.bar #zoom{display:none}
+  .bar:has(.actions:not([hidden])) #back,.bar:has(.actions:not([hidden])) #fwd,.bar:has(.actions:not([hidden])) #zoom{display:block}
+  .bar:has(.actions:not([hidden])) .nav,.bar:has(.actions:not([hidden])) #zoom{order:5}
 }
 
 .hint {

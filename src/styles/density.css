@@ -1,0 +1,57 @@
+/* Recover transcript space through layout, keeping message text at 14px. */
+.msg.tool>summary{align-items:flex-start;gap:8px;min-width:0}
+.msg.tool>summary::before{flex:none}
+.tool-summary-title{flex:1;min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:pre-line;overflow-wrap:anywhere;word-break:normal}
+.tool-status{flex:none;align-self:flex-start;white-space:nowrap;line-height:14px;padding:2px 6px;word-break:normal;overflow-wrap:normal}
+.tool-duration{flex:none;align-self:flex-start;white-space:nowrap;word-break:normal;overflow-wrap:normal}
+.markdown-table-scroll{width:100%;max-width:100%;min-width:0;overflow-x:auto;margin:.75em 0 1.1em;overscroll-behavior-x:contain}
+:is(.msg .body.markdown,.file-peek-markdown) .markdown-table-scroll table{display:table;width:100%;min-width:max-content;overflow:visible;margin:0;word-break:normal;overflow-wrap:normal}
+:is(.msg .body.markdown,.file-peek-markdown) .markdown-table-scroll th{white-space:nowrap;min-width:6ch}
+:is(.msg .body.markdown,.file-peek-markdown) .markdown-table-scroll td{min-width:6ch;max-width:32rem;white-space:normal;word-break:normal;overflow-wrap:normal}
+.markdown-table-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.panel-tabs{min-height:34px;height:34px;gap:2px}
+.panel-tabs button{min-width:0;padding:5px 8px;font-size:12px}
+.panel-tabs button.col-toggle{min-width:24px;min-height:24px;width:24px;height:24px;margin:0 4px}
+.panel-tabs button.panel-close{min-height:26px;flex-basis:26px;font-size:18px}
+.topbar.topbar--refined{padding:4px 16px;min-height:44px}
+.topbar--refined .topbar-main{min-height:36px;align-items:center;gap:10px}
+.topbar--refined .topbar-project{flex-direction:row;align-items:center;gap:8px;min-width:0}
+.topbar--refined .workspace-breadcrumb{flex:0 1 auto;max-width:110px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar--refined .topbar-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.topbar--refined .topbar-actions{gap:6px}
+.workspace-switcher button{min-height:30px;padding:4px 7px}
+.conversation-toolbar{display:flex;align-items:center;gap:8px;min-height:30px;max-height:34px;flex:none;border-bottom:1px solid var(--border-soft);padding:0 16px;min-width:0}
+.conversation-toolbar .conversation-tabs{order:-1;min-height:28px;gap:14px;padding:0;border:0;flex:none}
+.conversation-toolbar .conversation-tabs>button{font-size:12px;padding:4px 0}
+.conversation-toolbar .history-navigation{display:flex;flex:1;min-width:0;min-height:26px;max-height:30px;padding:0;gap:6px;justify-content:flex-end;border:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;white-space:nowrap}
+.conversation-toolbar .history-navigation .btn{min-height:24px;font-size:11px;padding:2px 6px;flex:none}
+.main .timeline{padding:12px 24px;gap:10px}
+.timeline .msg{font-size:14px;line-height:1.55;margin-top:0;margin-bottom:0;padding:4px 0;flex-shrink:0}
+.timeline .msg.user{padding:8px 12px}
+.timeline .msg .body p{line-height:1.55;margin:0 0 .65em}
+.timeline .msg .body>:first-child{margin-top:0}
+.timeline .msg .body>:last-child{margin-bottom:0}
+.timeline .msg .meta{margin-bottom:3px;line-height:1.3;font-size:10px}
+.timeline .msg .meta button{min-height:20px;padding:1px 6px;font-size:10px}
+.timeline .msg.system{padding:3px 0;color:var(--text-muted);font-size:12px}
+.timeline .msg.system .meta{display:none}
+.main .timeline .day-divider{margin:2px 0;font-size:10px;min-height:14px;flex-shrink:0}
+.main>.composer{padding-top:2px;padding-bottom:4px}
+.composer-context{margin-bottom:4px}
+.composer-box{padding:4px 8px;border-radius:14px}
+.composer textarea[aria-label="Message"]{min-height:32px;padding:2px 4px;line-height:1.5}
+.composer-footer{min-height:32px;padding-top:0;gap:4px}
+.composer-settings button{min-height:30px;padding-top:3px;padding-bottom:3px}
+.composer-send{width:30px;height:30px;min-width:30px;min-height:30px}
+.composer-context>.composer-activity{padding:5px 8px;border-radius:10px;gap:4px}
+.composer-activity[data-history-only="true"][data-collapsed="true"]{padding:0 4px;border:0;background:transparent;box-shadow:none;gap:0}
+.composer-activity[data-history-only="true"][data-collapsed="true"] .turn-activity-main{min-height:22px}
+.composer-activity[data-history-only="true"][data-collapsed="true"] .turn-activity-main>svg,
+.composer-activity[data-history-only="true"][data-collapsed="true"] .activity-label,
+.composer-activity[data-history-only="true"][data-collapsed="true"] .activity-time{display:none}
+.activity-panel-toggle{padding:1px 4px}
+.main>.status-bar{min-height:20px;height:20px;font-size:10px;padding-top:0;padding-bottom:0}
+.main>.status-bar button{min-height:18px;padding-top:0;padding-bottom:0}
+.jump-latest-wrap{top:82px}
+@media(max-width:800px){.conversation-toolbar .history-navigation>span{display:none}.workspace-switcher button>span{display:none}}
+@media(max-height:650px){.main .topbar.topbar--refined{min-height:40px;padding-top:2px;padding-bottom:2px}.main .timeline{padding-top:8px;padding-bottom:8px}.conversation-toolbar{min-height:26px}.composer-context>.composer-activity{padding:4px 6px}}

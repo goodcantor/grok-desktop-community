@@ -14,8 +14,11 @@ export function currentTurnItems(items=[]) {
   return items.slice(index+1).filter(item=>!item.queued);
 }
 
-export function currentPlan(items=[]) {
-  const plan=currentTurnItems(items).findLast(item=>item.kind==='plan');
+export function currentPlan(items=[], goal=null) {
+  const linked=goal?.goalId && !['complete','cleared'].includes(goal.status) ? items.findLast(item=>item.kind==='plan'&&item.goalId===goal.goalId) : null;
+  const current=currentTurnItems(items).findLast(item=>item.kind==='plan');
+  const compatible=current && (!current.goalId || (current.goalId===goal?.goalId && !['complete','cleared'].includes(goal?.status)));
+  const plan=compatible ? current : linked;
   return normalizePlanEntries(plan?.entries);
 }
 

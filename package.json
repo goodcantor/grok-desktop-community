@@ -26,7 +26,8 @@
     "test:native": "node scripts/harness-native-smoke.mjs",
     "test:package": "node scripts/community-package-smoke.mjs",
     "release:verify": "node scripts/verify-release.mjs",
-    "dist:preview": "npm run build && node scripts/package-preview.mjs"
+    "dist:preview": "npm run build && node scripts/package-preview.mjs",
+    "test:ui": "node scripts/ui-layout-smoke.mjs && node scripts/ui-progress-smoke.mjs && node scripts/ui-scroll-smoke.mjs"
   },
   "dependencies": {
     "@floating-ui/react": "0.27.19",

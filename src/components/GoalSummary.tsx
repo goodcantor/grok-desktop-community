@@ -28,12 +28,12 @@ export function GoalSummary({
   const elapsed = goalElapsed(goal, now, busy ? startedAt : null);
   const label =
     goal.status === "active"
-      ? goal.verifyingCompletion
+      ? !busy ? "Active · response idle" : goal.verifyingCompletion
         ? "Verifying"
         : goal.planning || goal.phase === "planning"
           ? "Planning"
           : goal.phase === "executing"
-            ? "Executing"
+            ? "Active"
             : "Active"
       : goal.status === "complete"
         ? "Complete"

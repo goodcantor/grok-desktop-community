@@ -230,6 +230,7 @@ export function loadSessionOpenState(cwd, sessionId, opts = {}) {
   }
 
   let items = [];
+  let observedGoalId = null;
   /** @type {any[]} */
   let tasks = [];
   let usage = emptyUsage();
@@ -245,7 +246,12 @@ export function loadSessionOpenState(cwd, sessionId, opts = {}) {
         continue;
       }
       const params = row.params || row;
-      items = applySessionUpdate(items, params);
+      const incoming=params?.update ?? params;
+      if((incoming.sessionUpdate||incoming.session_update)==='goal_updated') {
+        if(['cleared','complete'].includes(incoming.status)) observedGoalId=null;
+        else observedGoalId=incoming.goalId||incoming.goal_id||observedGoalId;
+      }
+      items = applySessionUpdate(items, observedGoalId ? {...params,_goalId:observedGoalId} : params);
 
       const update = params?.update ?? params;
       const kind = update?.sessionUpdate || update?.session_update;

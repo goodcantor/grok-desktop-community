@@ -34,8 +34,9 @@
           <option value="mobile">390×844</option>
         </select>
       </label>
-      <div class="actions">
-        <button type="button" id="zoom" title="Reset page zoom · Ctrl+wheel to change" aria-label="Reset page zoom">100%</button>
+      <button type="button" id="zoom" title="Reset page zoom · Ctrl+wheel to change" aria-label="Reset page zoom">100%</button>
+      <button type="button" id="tools-toggle" title="Browser tools" aria-label="Browser tools" aria-expanded="false" aria-controls="browser-tools">⋯</button>
+      <div class="actions" id="browser-tools" hidden>
         <button type="button" id="snap" title="Text snapshot (cheap for the model)">
           Snapshot
         </button>

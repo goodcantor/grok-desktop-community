@@ -253,6 +253,7 @@ export function trackWindowSession(ws) {
  */
 export function send(ws, channel, payload) {
   if (!ws?.win || ws.win.isDestroyed()) return;
+  if(channel==='agent:session-update' && payload?.update?.sessionUpdate==='plan' && ws.agent?.goalState?.goalId) payload={...payload,_goalId:ws.agent.goalState.goalId};
   if(channel==='agent:exit'||channel==='agent:error')ws.runtimeStatus='failed';
   if(channel==='agent:ready')ws.runtimeStatus=ws.queue?.running?'running':'idle';
   if (ws.host && (channel.startsWith('agent:') || channel.startsWith('execution:'))) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { MarkdownTable } from "../MarkdownTable";
 import { samePathKey } from "../../lib/path-utils";
 import {
   classifyMarkdownHref,
@@ -149,6 +150,7 @@ export function MarkdownPeek({
     }
 
     return {
+      table: MarkdownTable,
       h1: heading(1),
       h2: heading(2),
       h3: heading(3),

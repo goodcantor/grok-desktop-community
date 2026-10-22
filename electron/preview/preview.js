@@ -12,6 +12,21 @@ document.documentElement.dataset.docked=params.get('docked')==='1'?'true':'false
 applyTheme(params.get("theme") || "dark");
 
 const bar = document.getElementById("bar");
+const toolsToggle = document.getElementById('tools-toggle');
+const tools = document.getElementById('browser-tools');
+function setToolsOpen(open) {
+  tools.hidden = !open;
+  toolsToggle.setAttribute('aria-expanded', String(open));
+  void reportLayout();
+}
+toolsToggle.addEventListener('click', () => setToolsOpen(tools.hidden));
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !tools.hidden) {
+    event.preventDefault();
+    setToolsOpen(false);
+    toolsToggle.focus();
+  }
+});
 const form = document.getElementById("form");
 const urlEl = document.getElementById("url");
 const back = document.getElementById("back");

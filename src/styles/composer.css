@@ -1221,22 +1221,6 @@
   }
 }
 
-/* A lone collapsed task chip shares the status line instead of reserving a row. */
-.composer-activity:has(> .activity-extras > .activity-tasks):not(:has(.goal-summary, .activity-plan, .prompt-queue, .activity-tasks > [data-state="open"])) {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  & > .turn-activity {
-    order: -1;
-    flex: 1;
-    min-width: 0;
-  }
-  & > .activity-extras {
-    flex: none;
-    max-width: 60%;
-  }
-}
-
 /* One input surface; context stays above it rather than growing its frame. */
 .composer-box{border-radius:17px;background:var(--input-bg);border:1px solid var(--border);box-shadow:0 2px 12px color-mix(in srgb,var(--bg) 75%,transparent)}
 .composer textarea[aria-label="Message"]{font-size:14px;line-height:1.6}.composer-footer{min-height:40px;gap:6px}.composer-send{width:32px;height:32px}.composer-settings{font-size:12px}.composer-settings button{font-size:12px}.composer-file-refs{gap:6px}.composer-image{width:64px;height:64px;border-radius:12px;overflow:hidden}.composer-images{gap:8px;flex-wrap:nowrap;overflow-x:auto}.composer-image{flex:none}

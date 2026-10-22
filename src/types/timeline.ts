@@ -50,7 +50,7 @@ export type TimelineItem = (
       askUser?: boolean;
       at: number;
     }
-  | { id: string; kind: "plan"; entries: unknown[]; at: number }
+  | { id: string; kind: "plan"; goalId?: string; entries: unknown[]; at: number }
   | { id: string; kind: "system"; text: string; at: number }
 ) & { historyOrdinal?: number };
 

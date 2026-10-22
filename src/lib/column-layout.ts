@@ -2,7 +2,7 @@
 
 export const COLUMN_LAYOUT_KEY = "grok-desktop-column-layout";
 
-export const SIDEBAR_WIDTH_DEFAULT = 316;
+export const SIDEBAR_WIDTH_DEFAULT = 272;
 export const SIDEBAR_WIDTH_MIN = 256;
 export const SIDEBAR_WIDTH_MAX = 720;
 

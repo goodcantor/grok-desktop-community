@@ -62,3 +62,37 @@ test('compaction is visible until its terminal event while approvals and Stop ta
   items.push({kind:'system',text:'Conversation compacted.'});
   assert.notEqual(activityStatus({items}).phase,'compacting');
 });
+
+
+test('goal plans survive follow-ups but never leak to an unrelated goal',()=>{
+ const entries=[{content:'Build the UI',status:'in_progress'}];
+ const items=[{kind:'user',text:'Start'},{kind:'plan',entries,goalId:'g1'},{kind:'user',text:'Also verify zoom'}];
+ assert.deepEqual(currentPlan(items,{goalId:'g1',status:'active'}),entries);
+ assert.deepEqual(currentPlan(items,{goalId:'g2',status:'active'}),[]);
+ assert.deepEqual(currentPlan(items,{goalId:'g1',status:'complete'}),[]);
+ assert.deepEqual(currentPlan(items),[]);
+});
+
+test('plan reducer retains observed native goal provenance',()=>{
+ const items=applySessionUpdate([],{_goalId:'native-goal',update:{sessionUpdate:'plan',entries:[{content:'Verify',status:'pending'}]}});
+ assert.equal(items[0].goalId,'native-goal');
+ const changed=applySessionUpdate(items,{_goalId:'native-goal',update:{sessionUpdate:'plan',entries:[{content:'Verify',status:'completed'}]}});
+ assert.equal(changed.length,1);assert.equal(changed[0].goalId,'native-goal');
+});
+
+test('new current plan replaces retained goal plan and foreign goal plans are excluded',()=>{
+ const a=[{content:'Old',status:'pending'}],b=[{content:'New',status:'pending'}];
+ const items=[{kind:'user'},{kind:'plan',goalId:'g1',entries:a},{kind:'user'},{kind:'plan',goalId:'g1',entries:b}];
+ assert.deepEqual(currentPlan(items,{goalId:'g1',status:'active'}),b);
+ assert.deepEqual(currentPlan(items,{goalId:'g2',status:'active'}),[]);
+ const updated=[...items,{kind:'plan',entries:[]}];
+ assert.deepEqual(currentPlan(updated,{goalId:'g1',status:'active'}),[]);
+});
+
+test('clearing or completing a goal hides its dock steps while retaining its transcript plan',()=>{
+ const items=[{kind:'user'},{kind:'plan',goalId:'g1',entries:[{content:'Step',status:'completed'}]}];
+ assert.deepEqual(currentPlan(items,null),[]);
+ assert.deepEqual(currentPlan(items,{goalId:'g1',status:'complete'}),[]);
+ assert.deepEqual(currentPlan(items,{goalId:'g1',status:'cleared'}),[]);
+ assert.equal(items[1].entries.length,1);
+});

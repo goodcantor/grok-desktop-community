@@ -57,6 +57,9 @@ jobs:
           else
             npm run test:native
           fi
+      - name: Native layout, progress and scrolling (Windows)
+        if: runner.os == 'Windows'
+        run: npm run test:ui
       - name: Packaged shell (synthetic home, missing CLI)
         shell: bash
         run: |
@@ -72,6 +75,9 @@ jobs:
           path: |
             qa/harness-native*.json
             qa/community-package.json
+            qa/ui-layout-after/results.json
+            qa/ui-progress/results.json
+            qa/ui-scroll/results.json
           if-no-files-found: warn
           retention-days: 14
   source-security:
